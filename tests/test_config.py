@@ -13,6 +13,8 @@ from config import (
     DEFAULT_CAPTURE_METHOD,
     DEFAULT_CLAUDE_TIMEOUT_SECONDS,
     DEFAULT_CLAUDE_MODEL,
+    DEFAULT_HOTKEY_MODS,
+    DEFAULT_HOTKEY_VK,
     DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_STABILITY,
@@ -228,6 +230,24 @@ class ConfigTests(unittest.TestCase):
             persisted = json.loads(path.read_text())
             self.assertEqual(persisted["hotkey"]["mods"], ["ctrl"])
             self.assertEqual(persisted["hotkey"]["vk"], "Win")
+
+    def test_invalid_hotkey_values_fall_back_to_ctrl_win(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set_many({"hotkey.mods": ["not-real"], "hotkey.vk": ""})
+
+            self.assertEqual(config.hotkey_mods, DEFAULT_HOTKEY_MODS)
+            self.assertEqual(config.hotkey_vk, DEFAULT_HOTKEY_VK)
+
+    def test_hotkey_values_are_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set_many({"hotkey.mods": ["Control", "Windows"], "hotkey.vk": "a"})
+
+            self.assertEqual(config.hotkey_mods, ["ctrl", "win"])
+            self.assertEqual(config.hotkey_vk, "A")
 
 
 if __name__ == "__main__":

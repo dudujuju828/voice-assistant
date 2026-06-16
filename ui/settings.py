@@ -160,8 +160,8 @@ class SettingsDialog(QDialog):
         form.addRow("Capture delay:", self._capture_delay_input)
 
         # --- hotkey (read-only for now) ---
-        mods = config.get("hotkey.mods", ["ctrl"])
-        vk = config.get("hotkey.vk", "Win")
+        mods = config.hotkey_mods
+        vk = config.hotkey_vk
         hotkey_text = (
             " + ".join([m.capitalize() for m in mods] + [vk]) + "  (hold to talk)"
         )

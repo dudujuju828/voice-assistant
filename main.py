@@ -163,8 +163,8 @@ class VoiceAssistant(QObject):
     # --- pipeline -----------------------------------------------------------
 
     def _init_hotkey(self) -> None:
-        mods = self._config.get("hotkey.mods", ["ctrl"])
-        vk = self._config.get("hotkey.vk", "Win")
+        mods = self._config.hotkey_mods
+        vk = self._config.hotkey_vk
         try:
             self._hotkey = HotkeyManager(mods, vk)
         except (AttributeError, OSError, ValueError) as exc:

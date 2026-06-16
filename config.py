@@ -24,6 +24,24 @@ DEFAULT_CLAUDE_MODEL = "opus"
 DEFAULT_CLAUDE_EFFORT = "default"
 DEFAULT_HOTKEY_MODS = ["ctrl"]
 DEFAULT_HOTKEY_VK = "Win"
+HOTKEY_MODIFIER_ALIASES = {
+    "alt": "alt",
+    "control": "ctrl",
+    "ctrl": "ctrl",
+    "shift": "shift",
+    "win": "win",
+    "windows": "win",
+}
+HOTKEY_TRIGGER_ALIASES = {
+    "enter": "Enter",
+    "return": "Enter",
+    "escape": "Escape",
+    "esc": "Escape",
+    "space": "Space",
+    "tab": "Tab",
+    "win": "Win",
+    "windows": "Win",
+}
 DEFAULT_CAPTURE_METHOD = "visible_input"
 CAPTURE_METHODS = {"clipboard", "hidden_input", "visible_input"}
 CLAUDE_EFFORT_LEVELS = {"default", "low", "medium", "high", "xhigh", "max"}
@@ -140,6 +158,33 @@ def _non_empty_str(value: Any, default: str) -> str:
     return value.strip() or default
 
 
+def _normalize_hotkey_mods(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return list(DEFAULT_HOTKEY_MODS)
+
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            return list(DEFAULT_HOTKEY_MODS)
+        mod = HOTKEY_MODIFIER_ALIASES.get(item.strip().lower())
+        if mod is None:
+            return list(DEFAULT_HOTKEY_MODS)
+        if mod not in normalized:
+            normalized.append(mod)
+    return normalized or list(DEFAULT_HOTKEY_MODS)
+
+
+def _normalize_hotkey_vk(value: Any) -> str:
+    if not isinstance(value, str):
+        return DEFAULT_HOTKEY_VK
+    key = value.strip()
+    if not key:
+        return DEFAULT_HOTKEY_VK
+    if len(key) == 1:
+        return key.upper()
+    return HOTKEY_TRIGGER_ALIASES.get(key.lower(), DEFAULT_HOTKEY_VK)
+
+
 class Config:
     """Thin wrapper over the JSON config file with dotted-key access."""
 
@@ -241,6 +286,22 @@ class Config:
     @capture_monitor_device.setter
     def capture_monitor_device(self, device: str | None) -> None:
         self.set("capture_monitor_device", device)
+
+    @property
+    def hotkey_mods(self) -> list[str]:
+        return _normalize_hotkey_mods(self.get("hotkey.mods"))
+
+    @hotkey_mods.setter
+    def hotkey_mods(self, value: list[str]) -> None:
+        self.set("hotkey.mods", _normalize_hotkey_mods(value))
+
+    @property
+    def hotkey_vk(self) -> str:
+        return _normalize_hotkey_vk(self.get("hotkey.vk"))
+
+    @hotkey_vk.setter
+    def hotkey_vk(self, value: str) -> None:
+        self.set("hotkey.vk", _normalize_hotkey_vk(value))
 
     @property
     def voice_id(self) -> str:
