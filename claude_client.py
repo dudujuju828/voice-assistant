@@ -14,6 +14,12 @@ from typing import Optional
 from config import Config
 
 TURN_TIMEOUT_SECONDS = 120
+SESSION_ERROR_PATTERNS = (
+    "no conversation found",
+    "conversation not found",
+    "session not found",
+    "invalid session",
+)
 
 # ---------------------------------------------------------------------------
 # System prompt
@@ -54,6 +60,11 @@ class ClaudeError(RuntimeError):
     """Raised when a Claude turn fails for any other reason."""
 
 
+def _is_session_error(message: str) -> bool:
+    normalized = (message or "").lower()
+    return any(pattern in normalized for pattern in SESSION_ERROR_PATTERNS)
+
+
 class ClaudeClient:
     def __init__(self, config: Config) -> None:
         self._config = config
@@ -83,8 +94,8 @@ class ClaudeClient:
 
         try:
             return self._run_turn(prompt, session_id, add_dir)
-        except ClaudeError:
-            if session_id is None:
+        except ClaudeError as exc:
+            if session_id is None or not _is_session_error(str(exc)):
                 raise
             # Stale/expired session — start fresh once.
             self._config.session_id = None

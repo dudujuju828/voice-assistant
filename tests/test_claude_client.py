@@ -96,6 +96,37 @@ class ClaudeClientParseTests(unittest.TestCase):
         effort_index = command.index("--effort")
         self.assertEqual(command[effort_index + 1], "high")
 
+    def test_ask_retries_and_clears_stale_session(self) -> None:
+        client = self._client()
+        client._config.session_id = "stale-session"
+
+        with patch.object(
+            client,
+            "_run_turn",
+            side_effect=[ClaudeError("No conversation found"), "ok"],
+        ) as run_turn:
+            result = client.ask("question", None)
+
+        self.assertEqual(result, "ok")
+        self.assertIsNone(client._config.session_id)
+        self.assertEqual(run_turn.call_count, 2)
+
+    def test_ask_does_not_clear_session_for_unrelated_error(self) -> None:
+        client = self._client()
+        client._config.session_id = "keep-session"
+
+        with (
+            patch.object(
+                client,
+                "_run_turn",
+                side_effect=ClaudeError("Unknown model alias"),
+            ),
+            self.assertRaises(ClaudeError),
+        ):
+            client.ask("question", None)
+
+        self.assertEqual(client._config.session_id, "keep-session")
+
 
 if __name__ == "__main__":
     unittest.main()
