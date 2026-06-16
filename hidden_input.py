@@ -15,10 +15,17 @@ from __future__ import annotations
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLineEdit, QWidget
 
+import monitors
+
 try:
     import win32gui
 except ImportError:  # pragma: no cover - non-Windows dev import
     win32gui = None  # type: ignore
+
+CAPTURE_PLACEHOLDER = "Listening..."
+VISIBLE_MARGIN = 48
+VISIBLE_WIDTH = 720
+VISIBLE_HEIGHT = 52
 
 
 class HiddenInput(QWidget):
@@ -57,3 +64,76 @@ class HiddenInput(QWidget):
         self._edit.clear()
         self.hide()
         return text
+
+
+class VisibleInput(QWidget):
+    """Small focused text box for Wispr setups that need visible selection."""
+
+    def __init__(self, config) -> None:
+        super().__init__()
+        self._config = config
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.resize(VISIBLE_WIDTH, VISIBLE_HEIGHT)
+
+        self._edit = QLineEdit(self)
+        self._edit.setGeometry(0, 0, VISIBLE_WIDTH, VISIBLE_HEIGHT)
+        self._edit.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._edit.setStyleSheet(
+            """
+            QLineEdit {
+                background: rgba(18, 22, 28, 235);
+                border: 1px solid rgba(255, 255, 255, 90);
+                border-radius: 8px;
+                color: white;
+                font-size: 18px;
+                padding: 8px 14px;
+                selection-background-color: #2f6fed;
+                selection-color: white;
+            }
+            """
+        )
+
+    def focus_for_capture(self) -> None:
+        """Show, select placeholder text, and focus for Wispr insertion."""
+        self._reposition()
+        self._edit.setText(CAPTURE_PLACEHOLDER)
+        self._edit.selectAll()
+        self.show()
+        self.raise_()
+        self.activateWindow()
+        if win32gui is not None:
+            try:
+                win32gui.SetForegroundWindow(int(self.winId()))
+            except Exception:
+                pass
+        self._edit.setFocus(Qt.OtherFocusReason)
+        self._edit.selectAll()
+
+    def read_and_clear(self) -> str:
+        """Return typed transcript, then reset and hide the box."""
+        text = self._edit.text().strip()
+        self._edit.clear()
+        self.hide()
+        if text == CAPTURE_PLACEHOLDER:
+            return ""
+        if text.startswith(CAPTURE_PLACEHOLDER):
+            return text[len(CAPTURE_PLACEHOLDER) :].strip()
+        return text
+
+    def _reposition(self) -> None:
+        try:
+            rect = monitors.get_monitor_rect(self._config.capture_monitor_device)
+        except Exception:
+            rect = None
+        if rect is None:
+            return
+        left, top, width, height = rect
+        box_width = min(VISIBLE_WIDTH, max(320, width - (VISIBLE_MARGIN * 2)))
+        self.resize(box_width, VISIBLE_HEIGHT)
+        self._edit.setGeometry(0, 0, box_width, VISIBLE_HEIGHT)
+        x = left + ((width - box_width) // 2)
+        y = top + height - VISIBLE_HEIGHT - VISIBLE_MARGIN
+        self.move(x, y)

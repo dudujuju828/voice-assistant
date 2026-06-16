@@ -50,6 +50,9 @@ python main.py
 - `hidden_input` — Wispr types into an invisible, off-screen box that the app
   reads back. Use this when Wispr needs a focused text field or active
   insertion point before it will emit the transcript.
+- `visible_input` - Wispr types into a small bottom-of-screen text box with
+  selected placeholder text. Use this when Wispr needs a visible editable field
+  or selected text before it will replace the current contents.
 
 Set the method in Settings. The post-release delay still lives in `capture` in
 the config file.

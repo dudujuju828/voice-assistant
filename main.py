@@ -28,7 +28,7 @@ from claude_client import (  # noqa: E402
     ClaudeNotInstalledError,
 )
 from config import Config  # noqa: E402
-from hidden_input import HiddenInput  # noqa: E402
+from hidden_input import HiddenInput, VisibleInput  # noqa: E402
 from hotkey import HotkeyManager  # noqa: E402
 from ui.settings import SettingsDialog  # noqa: E402
 from ui.status_overlay import StatusOverlay  # noqa: E402
@@ -98,6 +98,7 @@ class VoiceAssistant(QObject):
         # --- UI pieces (near-zero visual footprint) ---
         self._overlay = StatusOverlay(self._config)
         self._hidden = HiddenInput()
+        self._visible_input = VisibleInput(self._config)
         self._tray = Tray()
         self._tray.show()
 
@@ -144,6 +145,8 @@ class VoiceAssistant(QObject):
         self._overlay.show_recording()
         if self._config.capture_method == "hidden_input":
             self._hidden.focus_for_capture()
+        elif self._config.capture_method == "visible_input":
+            self._visible_input.focus_for_capture()
         else:
             self._begin_clipboard_capture()
 
@@ -174,6 +177,8 @@ class VoiceAssistant(QObject):
         """Read the transcribed text from the configured capture source."""
         if self._config.capture_method == "hidden_input":
             return self._hidden.read_and_clear()
+        if self._config.capture_method == "visible_input":
+            return self._visible_input.read_and_clear()
         clipboard = self._app.clipboard()
         text = clipboard.text().strip() if clipboard else ""
         changed = self._clipboard_changed_during_capture

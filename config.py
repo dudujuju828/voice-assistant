@@ -17,7 +17,7 @@ from typing import Any
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"
 DEFAULT_CLAUDE_MODEL = "opus"
-CAPTURE_METHODS = {"clipboard", "hidden_input"}
+CAPTURE_METHODS = {"clipboard", "hidden_input", "visible_input"}
 DEFAULT_CAPTURE_DELAY_MS = 500
 MAX_CAPTURE_DELAY_MS = 10_000
 
@@ -167,7 +167,7 @@ class Config:
 
     @property
     def capture_method(self) -> str:
-        """Either "clipboard" (default) or "hidden_input"."""
+        """Configured transcript capture source."""
         method = self.get("capture.method", "clipboard")
         return method if method in CAPTURE_METHODS else "clipboard"
 

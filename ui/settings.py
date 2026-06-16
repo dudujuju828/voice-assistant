@@ -74,6 +74,9 @@ class SettingsDialog(QDialog):
         self._capture_method_combo = QComboBox(self)
         self._capture_method_combo.addItem("Clipboard (Wispr copy)", "clipboard")
         self._capture_method_combo.addItem("Hidden input (Wispr type)", "hidden_input")
+        self._capture_method_combo.addItem(
+            "Visible text box (Wispr type)", "visible_input"
+        )
         current_method = config.capture_method
         for index in range(self._capture_method_combo.count()):
             if self._capture_method_combo.itemData(index) == current_method:
