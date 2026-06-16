@@ -3,10 +3,13 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 LOG_FILENAME = "voice-assistant.log"
+_previous_excepthook = None
+_excepthook_installed = False
 
 
 def log_path() -> Path:
@@ -41,3 +44,28 @@ def setup_logging() -> None:
     else:
         root.addHandler(handler)
     root.setLevel(logging.INFO)
+    install_excepthook()
+
+
+def install_excepthook() -> None:
+    """Log otherwise-unhandled exceptions once before Python's normal hook."""
+    global _excepthook_installed, _previous_excepthook
+    if _excepthook_installed:
+        return
+    _previous_excepthook = sys.excepthook
+    sys.excepthook = _log_uncaught_exception
+    _excepthook_installed = True
+
+
+def _log_uncaught_exception(exc_type, exc_value, traceback) -> None:
+    if issubclass(exc_type, KeyboardInterrupt):
+        if _previous_excepthook is not None:
+            _previous_excepthook(exc_type, exc_value, traceback)
+        return
+
+    logging.getLogger(__name__).critical(
+        "Unhandled exception",
+        exc_info=(exc_type, exc_value, traceback),
+    )
+    if _previous_excepthook is not None:
+        _previous_excepthook(exc_type, exc_value, traceback)
