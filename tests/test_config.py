@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from config import (
     DEFAULT_CAPTURE_DELAY_MS,
+    DEFAULT_CAPTURE_METHOD,
     DEFAULT_CLAUDE_MODEL,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_STABILITY,
@@ -71,6 +72,14 @@ class ConfigTests(unittest.TestCase):
 
             config.capture_delay_ms = MAX_CAPTURE_DELAY_MS + 1
             self.assertEqual(config.capture_delay_ms, MAX_CAPTURE_DELAY_MS)
+
+    def test_invalid_capture_method_falls_back_to_visible_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set("capture.method", "not-real")
+
+            self.assertEqual(config.capture_method, DEFAULT_CAPTURE_METHOD)
 
     def test_tts_settings_are_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

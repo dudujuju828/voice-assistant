@@ -24,6 +24,7 @@ DEFAULT_CLAUDE_MODEL = "opus"
 DEFAULT_CLAUDE_EFFORT = "default"
 DEFAULT_HOTKEY_MODS = ["ctrl"]
 DEFAULT_HOTKEY_VK = "Win"
+DEFAULT_CAPTURE_METHOD = "visible_input"
 CAPTURE_METHODS = {"clipboard", "hidden_input", "visible_input"}
 CLAUDE_EFFORT_LEVELS = {"default", "low", "medium", "high", "xhigh", "max"}
 DEFAULT_CAPTURE_DELAY_MS = 500
@@ -51,7 +52,10 @@ def _default_config() -> dict[str, Any]:
         #   "clipboard"    — Wispr copies the transcription; we read the clipboard.
         #   "hidden_input" — Wispr types into an invisible focused box.
         # delay_ms gives Wispr a moment to finish writing before we read.
-        "capture": {"method": "visible_input", "delay_ms": DEFAULT_CAPTURE_DELAY_MS},
+        "capture": {
+            "method": DEFAULT_CAPTURE_METHOD,
+            "delay_ms": DEFAULT_CAPTURE_DELAY_MS,
+        },
         "elevenlabs": {
             "voice_id": DEFAULT_VOICE_ID,
             "model_id": DEFAULT_TTS_MODEL,
@@ -311,8 +315,8 @@ class Config:
     @property
     def capture_method(self) -> str:
         """Configured transcript capture source."""
-        method = self.get("capture.method", "clipboard")
-        return method if method in CAPTURE_METHODS else "clipboard"
+        method = self.get("capture.method", DEFAULT_CAPTURE_METHOD)
+        return method if method in CAPTURE_METHODS else DEFAULT_CAPTURE_METHOD
 
     @capture_method.setter
     def capture_method(self, value: str) -> None:
