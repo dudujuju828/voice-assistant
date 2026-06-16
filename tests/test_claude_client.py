@@ -39,6 +39,26 @@ class ClaudeClientParseTests(unittest.TestCase):
         with self.assertRaises(ClaudeError):
             client._parse_result(stdout)
 
+    def test_parse_result_accepts_last_json_line(self) -> None:
+        client = self._client()
+        stdout = "\n".join(
+            [
+                "warning: ignored non-json output",
+                json.dumps({"result": "from json line", "session_id": "session-456"}),
+            ]
+        )
+
+        result = client._parse_result(stdout)
+
+        self.assertEqual(result, "from json line")
+        self.assertEqual(client._config.session_id, "session-456")
+
+    def test_parse_result_rejects_non_object_json(self) -> None:
+        client = self._client()
+
+        with self.assertRaises(ClaudeError):
+            client._parse_result(json.dumps(["not", "an", "object"]))
+
 
 if __name__ == "__main__":
     unittest.main()

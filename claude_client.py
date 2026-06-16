@@ -127,6 +127,8 @@ class ClaudeClient:
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=TURN_TIMEOUT_SECONDS,
                 shell=False,
             )
@@ -145,10 +147,7 @@ class ClaudeClient:
         stdout = (stdout or "").strip()
         if not stdout:
             raise ClaudeError("Claude returned no output.")
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            raise ClaudeError("Could not parse Claude's JSON output.") from exc
+        payload = self._load_json_payload(stdout)
 
         new_session = payload.get("session_id")
         if new_session:
@@ -161,3 +160,23 @@ class ClaudeClient:
         if not result:
             raise ClaudeError("Claude returned an empty result.")
         return str(result).strip()
+
+    @staticmethod
+    def _load_json_payload(stdout: str) -> dict:
+        try:
+            payload = json.loads(stdout)
+        except json.JSONDecodeError:
+            payload = None
+            for line in reversed(stdout.splitlines()):
+                line = line.strip()
+                if not line.startswith("{"):
+                    continue
+                try:
+                    payload = json.loads(line)
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+        if not isinstance(payload, dict):
+            raise ClaudeError("Could not parse Claude's JSON output.")
+        return payload
