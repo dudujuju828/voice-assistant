@@ -90,8 +90,10 @@ def speak(
                 detail = resp.text[:200] if resp.content else ""
                 logger.warning("ElevenLabs error %s: %s", resp.status_code, detail)
                 return False
-            _play_stream(resp)
-            return True
+            played = _play_stream(resp)
+            if not played:
+                logger.warning("ElevenLabs stream contained no playable audio.")
+            return played
     except requests.RequestException as exc:
         logger.warning("ElevenLabs request failed: %s", exc)
     except Exception as exc:  # pragma: no cover - defensive
@@ -99,13 +101,14 @@ def speak(
     return False
 
 
-def _play_stream(resp: "requests.Response") -> None:
+def _play_stream(resp: "requests.Response") -> bool:
     """Feed streamed PCM bytes into a sounddevice output stream."""
     stream = sd.RawOutputStream(
         samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16"
     )
     stream.start()
     leftover = b""
+    wrote_audio = False
     try:
         for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
             if not chunk:
@@ -115,7 +118,9 @@ def _play_stream(resp: "requests.Response") -> None:
             usable = len(data) - (len(data) % 2)
             if usable:
                 stream.write(data[:usable])
+                wrote_audio = True
             leftover = data[usable:]
     finally:
         stream.stop()
         stream.close()
+    return wrote_audio

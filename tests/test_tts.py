@@ -18,6 +18,11 @@ class FakeResponse:
         return None
 
     def iter_content(self, chunk_size: int):
+        return iter((b"\x00\x00",))
+
+
+class EmptyResponse(FakeResponse):
+    def iter_content(self, chunk_size: int):
         return iter(())
 
 
@@ -70,6 +75,15 @@ class TTSTests(unittest.TestCase):
         with (
             patch.dict("os.environ", {}, clear=True),
             patch.object(tts, "sd", FakeSoundDevice()),
+            patch("tts.logger.warning"),
+        ):
+            self.assertFalse(tts.speak("hello", "voice-id"))
+
+    def test_speak_returns_false_for_empty_audio_stream(self) -> None:
+        with (
+            patch.dict("os.environ", {"ELEVENLABS_API_KEY": "key"}),
+            patch.object(tts, "sd", FakeSoundDevice()),
+            patch("tts.requests.post", return_value=EmptyResponse()),
             patch("tts.logger.warning"),
         ):
             self.assertFalse(tts.speak("hello", "voice-id"))
