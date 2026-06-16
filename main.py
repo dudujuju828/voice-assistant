@@ -192,13 +192,16 @@ class VoiceAssistant(QObject):
             return
         self._recording = True
         self._active_capture_method = self._config.capture_method
-        self._overlay.show_recording()
-        if self._active_capture_method == "hidden_input":
-            self._hidden.focus_for_capture()
-        elif self._active_capture_method == "visible_input":
-            self._visible_input.focus_for_capture()
-        else:
-            self._begin_clipboard_capture()
+        try:
+            self._overlay.show_recording()
+            if self._active_capture_method == "hidden_input":
+                self._hidden.focus_for_capture()
+            elif self._active_capture_method == "visible_input":
+                self._visible_input.focus_for_capture()
+            else:
+                self._begin_clipboard_capture()
+        except Exception as exc:
+            self._fail_current_turn(f"Transcript input failed: {exc}")
 
     def _on_release(self) -> None:
         """Hotkey up: give Wispr a moment, then capture and process."""
@@ -210,11 +213,17 @@ class VoiceAssistant(QObject):
         QTimer.singleShot(self._config.capture_delay_ms, self._capture_and_ask)
 
     def _capture_and_ask(self) -> None:
-        text = self._read_transcript().strip()
+        try:
+            text = self._read_transcript().strip()
+        except Exception as exc:
+            self._fail_current_turn(f"Transcript capture failed: {exc}")
+            return
         if not text:
             # Nothing was captured — quietly reset, no nagging UI.
-            self._overlay.hide()
-            self._busy = False
+            self._return_to_idle()
+            return
+        if self._client is None:
+            self._fail_current_turn("Claude is not available.")
             return
         self._ask_worker = AskWorker(
             self._client, text, self._config.capture_monitor_device
@@ -279,19 +288,35 @@ class VoiceAssistant(QObject):
         self._speak_worker.start()
 
     def _on_speech_done(self) -> None:
-        self._overlay.hide()
-        self._busy = False
+        self._return_to_idle()
 
     def _on_speech_failed(self, message: str) -> None:
         logger.warning(message)
         self._tray.notify("Voice Assistant", message)
 
     def _on_ask_failed(self, message: str) -> None:
+        self._fail_current_turn(message)
+
+    def _return_to_idle(self) -> None:
+        self._recording = False
+        self._busy = False
+        self._active_capture_method = None
+        self._clipboard_capture_active = False
+        self._clipboard_changed_during_capture = False
+        self._clipboard_text_before_capture = None
+        self._overlay.hide()
+
+    def _fail_current_turn(self, message: str) -> None:
         logger.warning(message)
         self._tray.notify("Voice Assistant", message)
+        self._recording = False
+        self._busy = False
+        self._active_capture_method = None
+        self._clipboard_capture_active = False
+        self._clipboard_changed_during_capture = False
+        self._clipboard_text_before_capture = None
         self._overlay.show_error()
         QTimer.singleShot(2500, self._overlay.hide)
-        self._busy = False
 
     # --- tray actions -------------------------------------------------------
 
