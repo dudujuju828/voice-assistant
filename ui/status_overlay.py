@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 
 import monitors
 
@@ -105,9 +105,22 @@ class StatusOverlay(QWidget):
 
     def _resolve_rect(self) -> Optional[tuple[int, int, int, int]]:
         try:
-            return monitors.get_monitor_rect(self._config.capture_monitor_device)
+            rect = monitors.get_monitor_rect(self._config.capture_monitor_device)
         except Exception:
+            rect = None
+        if rect is not None:
+            return rect
+
+        screen = QApplication.primaryScreen()
+        if screen is None:
             return None
+        geometry = screen.availableGeometry()
+        return (
+            geometry.x(),
+            geometry.y(),
+            geometry.width(),
+            geometry.height(),
+        )
 
     def _apply_no_activate(self) -> None:
         """Make the overlay non-activating + click-through at the Win32 level."""
