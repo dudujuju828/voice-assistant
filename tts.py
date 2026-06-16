@@ -5,9 +5,8 @@ sounddevice with no MP3 decoder dependency.
 """
 from __future__ import annotations
 
-import os
-import threading
 import logging
+import os
 from typing import Optional
 
 import requests
@@ -44,7 +43,7 @@ def speak(
     """Synthesize ``text`` and play it back, blocking until playback ends.
 
     Failures are swallowed (logged) so a TTS outage degrades to silence rather
-    than crashing the pipeline. Run this off the UI thread (see SpeakWorker).
+    than crashing the pipeline. Run this off the UI thread (see main.SpeakWorker).
     """
     text = (text or "").strip()
     if not text:
@@ -112,40 +111,3 @@ def _play_stream(resp: "requests.Response") -> None:
     finally:
         stream.stop()
         stream.close()
-
-
-class SpeakWorker(threading.Thread):
-    """Background thread wrapper so playback never blocks the Qt loop."""
-
-    def __init__(
-        self,
-        text: str,
-        voice_id: str,
-        model_id: str = "eleven_flash_v2_5",
-        stability: float = 0.5,
-        similarity_boost: float = 0.75,
-        speed: float = 1.0,
-        on_done=None,
-    ) -> None:
-        super().__init__(daemon=True)
-        self._text = text
-        self._voice_id = voice_id
-        self._model_id = model_id
-        self._stability = stability
-        self._similarity_boost = similarity_boost
-        self._speed = speed
-        self._on_done = on_done
-
-    def run(self) -> None:
-        try:
-            speak(
-                self._text,
-                self._voice_id,
-                self._model_id,
-                self._stability,
-                self._similarity_boost,
-                self._speed,
-            )
-        finally:
-            if self._on_done:
-                self._on_done()
