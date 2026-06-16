@@ -24,6 +24,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon  # noqa
 import app_logging  # noqa: E402
 import capture  # noqa: E402
 import runtime_checks  # noqa: E402
+from single_instance import SingleInstance  # noqa: E402
 import tts  # noqa: E402
 from claude_client import (  # noqa: E402
     ClaudeClient,
@@ -308,6 +309,11 @@ class VoiceAssistant(QObject):
 
 def main() -> int:
     app_logging.setup_logging()
+    single_instance = SingleInstance()
+    if single_instance.already_running:
+        logger.info("Another Voice Assistant instance is already running.")
+        return 0
+
     if sys.platform != "win32":
         # The app depends on Win32 APIs; warn but allow import-level testing.
         print("Voice Assistant targets Windows; some features will not work here.")
@@ -322,7 +328,10 @@ def main() -> int:
         return 1
 
     assistant = VoiceAssistant(app)  # noqa: F841 (kept alive for app lifetime)
-    return app.exec()
+    try:
+        return app.exec()
+    finally:
+        single_instance.close()
 
 
 if __name__ == "__main__":
