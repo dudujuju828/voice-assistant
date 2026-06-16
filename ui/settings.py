@@ -79,10 +79,14 @@ def _set_combo_value(combo: QComboBox, value: str) -> None:
 
 
 def _combo_value(combo: QComboBox) -> str:
+    text = combo.currentText().strip()
+    current_index = combo.currentIndex()
+    if combo.isEditable() and current_index >= 0 and text != combo.itemText(current_index):
+        return text
     data = combo.currentData()
     if data:
         return str(data)
-    return combo.currentText().strip()
+    return text
 
 
 def _number_input(
@@ -165,11 +169,16 @@ class SettingsDialog(QDialog):
         # --- voice dropdown ---
         self._voice_combo = QComboBox(self)
         current_voice = config.voice_id
+        voice_found = False
         selected_index = 0
         for index, (name, voice_id) in enumerate(_fetch_voices()):
             self._voice_combo.addItem(name, voice_id)
             if voice_id == current_voice:
                 selected_index = index
+                voice_found = True
+        if current_voice and not voice_found:
+            selected_index = self._voice_combo.count()
+            self._voice_combo.addItem(f"Current ({current_voice})", current_voice)
         self._voice_combo.setCurrentIndex(selected_index)
         form.addRow("ElevenLabs voice:", self._voice_combo)
 
