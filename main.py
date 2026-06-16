@@ -1,8 +1,9 @@
 """Voice Assistant — entrypoint and pipeline wiring.
 
-Flow: global hotkey → input window (Wispr types) → Enter → screenshot →
-Claude (Opus) turn → ElevenLabs streaming TTS, with a non-intrusive status
-overlay throughout.
+Push-to-talk flow: hold the hotkey (Wispr starts recording on the same keys) →
+speak → release the hotkey → the transcribed text is captured silently from the
+clipboard (or a hidden input box) → screenshot → Claude (Opus) turn →
+ElevenLabs streaming TTS. A tiny corner dot is the only visible footprint.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from PySide6.QtCore import QObject, QThread, QTimer, Signal  # noqa: E402
+from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon  # noqa: E402
 
 import capture  # noqa: E402
@@ -27,8 +28,8 @@ from claude_client import (  # noqa: E402
     ClaudeNotInstalledError,
 )
 from config import Config  # noqa: E402
+from hidden_input import HiddenInput  # noqa: E402
 from hotkey import HotkeyManager  # noqa: E402
-from ui.input_window import InputWindow  # noqa: E402
 from ui.settings import SettingsDialog  # noqa: E402
 from ui.status_overlay import StatusOverlay  # noqa: E402
 from ui.tray import Tray  # noqa: E402
@@ -87,17 +88,16 @@ class VoiceAssistant(QObject):
         self._config.ensure_capture_monitor()
 
         self._busy = False
+        self._recording = False
         self._ask_worker: AskWorker | None = None
         self._speak_worker: SpeakWorker | None = None
 
-        # --- UI pieces ---
+        # --- UI pieces (near-zero visual footprint) ---
         self._overlay = StatusOverlay(self._config)
-        self._input = InputWindow(self._config)
+        self._hidden = HiddenInput()
         self._tray = Tray()
         self._tray.show()
 
-        self._input.submitted.connect(self._on_question)
-        self._input.cancelled.connect(self._on_cancelled)
         self._tray.open_settings.connect(self._open_settings)
         self._tray.toggle_pause.connect(self._on_pause_toggled)
         self._tray.quit_requested.connect(self._quit)
@@ -109,22 +109,24 @@ class VoiceAssistant(QObject):
         except ClaudeNotInstalledError as exc:
             self._tray.notify("Claude not installed", str(exc))
 
-        # --- hotkey ---
-        mods = self._config.get("hotkey.mods", ["ctrl", "alt"])
+        # --- push-to-talk hotkey ---
+        mods = self._config.get("hotkey.mods", ["ctrl", "shift"])
         vk = self._config.get("hotkey.vk", "Space")
         self._hotkey = HotkeyManager(mods, vk)
-        self._hotkey.activated.connect(self._on_hotkey)
-        self._app.installNativeEventFilter(self._hotkey)
+        # Queued so heavy work never runs inside the keyboard hook callback.
+        self._hotkey.pressed.connect(self._on_press, Qt.QueuedConnection)
+        self._hotkey.released.connect(self._on_release, Qt.QueuedConnection)
         if not self._hotkey.register():
             self._tray.notify(
                 "Hotkey unavailable",
-                "Could not register the global hotkey (already in use?).",
+                "Could not install the keyboard hook for the hotkey.",
             )
 
     # --- pipeline -----------------------------------------------------------
 
-    def _on_hotkey(self) -> None:
-        if self._busy:
+    def _on_press(self) -> None:
+        """Hotkey down: Wispr starts recording; we just show the dot."""
+        if self._busy or self._recording:
             return
         if self._client is None:
             self._tray.notify(
@@ -132,25 +134,40 @@ class VoiceAssistant(QObject):
                 "Install the Claude CLI: npm i -g @anthropic-ai/claude-code",
             )
             return
-        self._busy = True
-        self._overlay.show_listening()
-        self._input.show_and_focus()
+        self._recording = True
+        self._overlay.show_recording()
+        if self._config.capture_method == "hidden_input":
+            self._hidden.focus_for_capture()
 
-    def _on_cancelled(self) -> None:
-        self._overlay.hide()
-        self._busy = False
-
-    def _on_question(self, text: str) -> None:
-        if self._client is None:
-            self._reset_with_error("Claude not installed")
+    def _on_release(self) -> None:
+        """Hotkey up: give Wispr a moment, then capture and process."""
+        if not self._recording:
             return
-        self._overlay.show_thinking()
+        self._recording = False
+        self._busy = True
+        self._overlay.show_processing()
+        QTimer.singleShot(self._config.capture_delay_ms, self._capture_and_ask)
+
+    def _capture_and_ask(self) -> None:
+        text = self._read_transcript().strip()
+        if not text:
+            # Nothing was captured — quietly reset, no nagging UI.
+            self._overlay.hide()
+            self._busy = False
+            return
         self._ask_worker = AskWorker(
             self._client, text, self._config.capture_monitor_device
         )
         self._ask_worker.succeeded.connect(self._on_reply)
         self._ask_worker.failed.connect(self._on_ask_failed)
         self._ask_worker.start()
+
+    def _read_transcript(self) -> str:
+        """Read the transcribed text from the configured capture source."""
+        if self._config.capture_method == "hidden_input":
+            return self._hidden.read_and_clear()
+        clipboard = self._app.clipboard()
+        return clipboard.text() if clipboard else ""
 
     def _on_reply(self, reply: str) -> None:
         self._overlay.show_speaking()
@@ -166,11 +183,8 @@ class VoiceAssistant(QObject):
 
     def _on_ask_failed(self, message: str) -> None:
         self._tray.notify("Voice Assistant", message)
-        self._reset_with_error(message)
-
-    def _reset_with_error(self, message: str) -> None:
-        self._overlay.show_error(message[:48])
-        QTimer.singleShot(3000, self._overlay.hide)
+        self._overlay.show_error()
+        QTimer.singleShot(2500, self._overlay.hide)
         self._busy = False
 
     # --- tray actions -------------------------------------------------------

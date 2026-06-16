@@ -32,26 +32,43 @@ pip install PySide6 mss pywin32 requests sounddevice python-dotenv
 
 ## WINDOWS API REFERENCE
 
-### Global hotkey (user32, via pywin32 / native message loop)
-- **`RegisterHotKey(hWnd, id, fsModifiers, vk)`** — system-wide hotkey, works without elevation for normal key combos.
-  - `fsModifiers`: `MOD_CONTROL | MOD_ALT | MOD_NOREPEAT` (`MOD_WIN` reserved by OS for many combos).
-  - Delivers `WM_HOTKEY (0x0312)` to the window's message loop.
-  - **Foreground privilege:** the process receiving `WM_HOTKEY` is granted the right to call `SetForegroundWindow` — this is what lets your input window legitimately grab focus on hotkey.
-- **`UnregisterHotKey(hWnd, id)`** — on shutdown.
-- In PySide6: subclass and override `nativeEvent` to intercept `WM_HOTKEY`, or run a hidden message-only window. Simplest reliable path: a tiny Win32 message loop in a QThread, or `QAbstractNativeEventFilter`.
+### Push-to-talk hotkey (user32 low-level keyboard hook)
+We need both key *down* and key *up*, so `RegisterHotKey` (down-only,
+`WM_HOTKEY`) doesn't fit. Instead we install a low-level keyboard hook:
+- **`SetWindowsHookExW(WH_KEYBOARD_LL=13, proc, hMod, 0)`** — global hook; the
+  callback runs on the installing thread, which must pump Win32 messages (Qt's
+  event loop does this). `hMod` = `GetModuleHandleW(None)`.
+- The callback receives `WM_KEYDOWN/KEYUP/SYSKEYDOWN/SYSKEYUP` with a
+  `KBDLLHOOKSTRUCT` (we read `vkCode`). When the trigger key (Space) goes down
+  *and* the modifiers are held (checked with `GetAsyncKeyState`), we emit
+  `pressed`; when the trigger key goes up we emit `released`. Auto-repeat is
+  ignored via an "already active" flag.
+- **`CallNextHookEx`** must be called and the proc must return fast — a slow
+  hook stalls all keyboard input. So `pressed`/`released` are connected with
+  `Qt.QueuedConnection` and the real work happens back on the event loop.
+- **`UnhookWindowsHookEx(hook)`** on shutdown / pause.
 
-### Focus management (the hard part — two windows)
-Split the UI into **two top-level widgets**:
+Semantics: hold the combo → Wispr (bound to the same keys) records → release →
+we capture the transcript, screenshot, and run a Claude turn.
 
-1. **StatusOverlay** (Listening / Thinking / Speaking) — must **never** steal focus.
-   - Window flags: `Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowTransparentForInput` (for the click-through status text).
-   - Win32 ex-style: `WS_EX_NOACTIVATE (0x08000000) | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT`.
-   - Apply via `win32gui.SetWindowLong(hwnd, GWL_EXSTYLE, ...)` after `show()`.
+### Capturing the transcript silently (no visible input box)
+There is **no on-screen input window**. Two capture methods (config
+`capture.method`):
 
-2. **InputWindow** (the QLineEdit/QTextEdit Wispr types into) — must **grab** focus on hotkey.
-   - Normal activatable frameless window (`Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint`), **without** `WS_EX_NOACTIVATE`.
-   - On `WM_HOTKEY`: `show()` → `win32gui.SetForegroundWindow(hwnd)` (allowed because hotkey granted foreground rights) → `lineEdit.setFocus()`.
-   - Wispr Flow now types into the focused QLineEdit. User presses **Enter** to submit → triggers screenshot + Claude turn → hide InputWindow, show StatusOverlay.
+1. **`clipboard`** (default) — Wispr is set to copy its transcription. After the
+   key is released we wait `capture.delay_ms` (default 500 ms) for Wispr to
+   finish, then read `QApplication.clipboard().text()`.
+2. **`hidden_input`** — an invisible, off-screen `QLineEdit` (`hidden_input.py`)
+   that briefly grabs focus on press via `SetForegroundWindow` so Wispr's
+   keystrokes land there; we read and clear it after release.
+
+The hotkey no longer needs to grant foreground rights to a visible box. The
+only on-screen element is the **StatusOverlay**, which must **never** steal
+focus:
+- Window flags: `Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool | Qt.WindowTransparentForInput`.
+- Win32 ex-style: `WS_EX_NOACTIVATE (0x08000000) | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT`, applied via `win32gui.SetWindowLong(hwnd, GWL_EXSTYLE, ...)` after `show()`.
+- It is a tiny ~40 px corner dot at low opacity: red recording, amber
+  processing, green speaking, gone when idle. No text, no emojis.
 
 Relevant calls: `SetForegroundWindow`, `SetWindowLong`/`GetWindowLong` with `GWL_EXSTYLE`, `ShowWindow`. Constants in `win32con`.
 
@@ -151,15 +168,15 @@ claude -p "<prompt>" \
 voice-assistant/
 ├── main.py                # entrypoint: SetProcessDpiAwareness → QApplication → wire it up
 ├── config.py              # load/save %APPDATA%\config.json, defaults
-├── hotkey.py              # RegisterHotKey + WM_HOTKEY native event filter
+├── hotkey.py              # WH_KEYBOARD_LL hook → push-to-talk pressed/released
+├── hidden_input.py        # invisible off-screen QLineEdit (hidden_input capture)
 ├── monitors.py            # EnumDisplayMonitors, friendly names, resolve device→rect
 ├── capture.py             # mss grab of chosen monitor → PNG path
-├── claude_client.py       # subprocess spawn, --resume, json parse, session mgmt, "start fresh"
+├── claude_client.py       # subprocess spawn, SYSTEM_PROMPT, --resume, json parse, session mgmt
 ├── tts.py                 # ElevenLabs streaming POST → sounddevice playback
 ├── ui/
 │   ├── tray.py            # QSystemTrayIcon + menu
-│   ├── status_overlay.py  # non-activating click-through overlay (Listening/Thinking/Speaking)
-│   ├── input_window.py    # activatable QLineEdit that grabs focus on hotkey
+│   ├── status_overlay.py  # non-activating click-through corner dot (no text)
 │   └── settings.py        # monitor dropdown, hotkey, voice picker
 ├── .env                   # ELEVENLABS_API_KEY=...
 └── requirements.txt
@@ -172,31 +189,31 @@ voice-assistant/
 ```
 [Tray running, normal integrity]
         │
-   hotkey pressed (RegisterHotKey → WM_HOTKEY)
-        │  (process gains foreground rights)
+   hold hotkey (WH_KEYBOARD_LL: trigger down + mods held → "pressed"); Wispr records
+        │   (Wispr is bound to the same keys)
         ▼
-[InputWindow.show() → SetForegroundWindow → QLineEdit.setFocus()]
+[StatusOverlay: red dot — recording]   (WS_EX_NOACTIVATE — never steals focus)
         │
-   user speaks → Wispr Flow types transcription into the focused QLineEdit
+   user speaks, then releases the hotkey → Wispr stops and hands over the text
         │
-   user presses Enter
+   wait capture.delay_ms → read transcript (clipboard / hidden_input)
         ├──► capture.py: mss grab of chosen monitor → screenshot.png
         │
         ▼
-[StatusOverlay: "Thinking"]   (WS_EX_NOACTIVATE — never steals focus)
+[StatusOverlay: amber dot — processing]
         │
-   claude_client.py: claude -p "<text> + <png path>" --resume <id> --model opus --add-dir
+   claude_client.py: claude -p "<text> + <png>" --append-system-prompt SYSTEM_PROMPT --resume <id> --model opus
         │   (parse JSON result + session_id; on error → clear id, retry fresh)
         ▼
-[StatusOverlay: "Speaking"]
+[StatusOverlay: green dot — speaking]
         │
    tts.py: POST /v1/text-to-speech/{voice}/stream → stream chunks → sounddevice
         │
         ▼
-[StatusOverlay fades out → back to idle tray]
+[StatusOverlay hides → back to idle tray]
 ```
 
 ### Build order (MVP)
-1. Tray + hotkey + idle. 2. InputWindow focus-grab + Wispr typing works. 3. Monitor enumerate + settings + capture. 4. Claude subprocess turn (text only, then with screenshot). 5. ElevenLabs streaming playback. 6. StatusOverlay polish.
+1. Tray + push-to-talk hook + idle. 2. Silent capture (clipboard / hidden input) works with Wispr. 3. Monitor enumerate + settings + capture. 4. Claude subprocess turn (text only, then with screenshot). 5. ElevenLabs streaming playback. 6. StatusOverlay dot polish.
 ```
 ```

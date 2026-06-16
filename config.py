@@ -22,7 +22,16 @@ def _default_config() -> dict[str, Any]:
     return {
         # Resolved lazily on first run to the primary monitor device name.
         "capture_monitor_device": None,
-        "hotkey": {"mods": ["ctrl", "alt"], "vk": "Space"},
+        "hotkey": {
+            "mods": ["ctrl", "shift"],
+            "vk": "Space",
+            "semantics": "push_to_talk",
+        },
+        # How the transcribed text reaches the app after the hotkey is released.
+        #   "clipboard"    — Wispr copies the transcription; we read the clipboard.
+        #   "hidden_input" — Wispr types into an invisible focused box.
+        # delay_ms gives Wispr a moment to finish writing before we read.
+        "capture": {"method": "clipboard", "delay_ms": 500},
         "elevenlabs": {
             "voice_id": DEFAULT_VOICE_ID,
             "model_id": DEFAULT_TTS_MODEL,
@@ -125,6 +134,16 @@ class Config:
     @property
     def claude_model(self) -> str:
         return self.get("claude.model", DEFAULT_CLAUDE_MODEL)
+
+    @property
+    def capture_method(self) -> str:
+        """Either "clipboard" (default) or "hidden_input"."""
+        return self.get("capture.method", "clipboard")
+
+    @property
+    def capture_delay_ms(self) -> int:
+        """How long to wait after hotkey release for Wispr to finish writing."""
+        return int(self.get("capture.delay_ms", 500))
 
     @property
     def session_id(self) -> str | None:

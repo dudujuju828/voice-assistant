@@ -1,10 +1,11 @@
 # Voice Assistant
 
-A Windows system-tray co-pilot. Press a global hotkey, speak your question
-(typed into a focused box by [Wispr Flow](https://wisprflow.ai) or the
-keyboard), and the app screenshots your chosen monitor, asks Claude (Opus) via
-the Claude Code CLI in a persistent session, and speaks the answer back through
-ElevenLabs streaming TTS — with a non-intrusive status overlay throughout.
+A Windows system-tray co-pilot with a near-zero visual footprint. Hold a global
+hotkey to talk, release it when you're done. [Wispr Flow](https://wisprflow.ai)
+(bound to the same keys) transcribes your speech, the app captures that text
+silently, screenshots your chosen monitor, asks Claude (Opus) via the Claude
+Code CLI in a persistent session, and speaks the answer back through ElevenLabs
+streaming TTS. The only thing on screen is a tiny dot in the corner.
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
 
@@ -27,12 +28,27 @@ python main.py
 
 ## Usage
 
-1. The app runs in the system tray.
-2. Press **Ctrl+Alt+Space** (default hotkey).
-3. Speak (Wispr types into the box) or type, then press **Enter**.
-4. Watch the overlay: 🎤 Listening → 🤔 Thinking → 🔊 Speaking.
+1. The app runs in the system tray with no window.
+2. Bind Wispr Flow to **Ctrl+Shift+Space** (the same hotkey the app listens for).
+   Set Wispr to copy its transcription to the clipboard (the default capture
+   method) or to type it (set `capture.method` to `hidden_input` in the config).
+3. **Hold Ctrl+Shift+Space**, speak your question, then **release**. Wispr stops
+   and hands over the text; the app takes it from there silently.
+4. The only visible cue is a small dot in the bottom-right corner: red while
+   recording, amber while thinking, green while speaking. It's gone when idle.
 5. Right-click the tray icon for **Settings** (capture monitor, voice),
    **Pause Hotkey**, or **Quit**.
 
+### Capture methods
+
+- `clipboard` (default) — Wispr copies the transcription; the app reads the
+  clipboard a moment after you release the key.
+- `hidden_input` — Wispr types into an invisible, off-screen box that the app
+  reads back. Useful if you'd rather not touch the clipboard.
+
+Set the method and the post-release delay in `capture` in the config file.
+
 Config is stored at `%APPDATA%\VoiceAssistant\config.json`; the Claude session
-id persists there so conversations carry across questions and restarts.
+id persists there so conversations carry across questions and restarts. The
+spoken-reply behaviour (short, plain, no markdown) is set by `SYSTEM_PROMPT` in
+`claude_client.py`.

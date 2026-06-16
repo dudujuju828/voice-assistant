@@ -71,9 +71,11 @@ class SettingsDialog(QDialog):
         form.addRow("Capture monitor:", self._monitor_combo)
 
         # --- hotkey (read-only for now) ---
-        mods = config.get("hotkey.mods", ["ctrl", "alt"])
+        mods = config.get("hotkey.mods", ["ctrl", "shift"])
         vk = config.get("hotkey.vk", "Space")
-        hotkey_text = " + ".join([m.capitalize() for m in mods] + [vk])
+        hotkey_text = (
+            " + ".join([m.capitalize() for m in mods] + [vk]) + "  (hold to talk)"
+        )
         hotkey_field = QLineEdit(hotkey_text, self)
         hotkey_field.setReadOnly(True)
         form.addRow("Hotkey:", hotkey_field)

@@ -15,6 +15,36 @@ from config import Config
 
 TURN_TIMEOUT_SECONDS = 120
 
+# ---------------------------------------------------------------------------
+# System prompt
+# ---------------------------------------------------------------------------
+# This string is passed to the Claude CLI on every turn via
+# ``--append-system-prompt`` so it shapes both new and resumed sessions. It is
+# tuned for a hands-free voice assistant: replies are spoken aloud by a text to
+# speech voice, so they must be short, plainly worded, and free of any markdown
+# or symbols that would sound wrong when read out. Read it aloud before editing
+# — if a sentence sounds awkward spoken, it will sound awkward to the user too.
+SYSTEM_PROMPT = (
+    "You are a voice assistant. The person talks to you out loud and hears "
+    "your replies spoken by a text to speech voice, so everything you say has "
+    "to sound natural when it is read aloud.\n\n"
+    "Keep your replies short and direct, usually two to four sentences. Get to "
+    "the point and skip filler and pleasantries.\n\n"
+    "Never use formatting of any kind. That means no markdown, no bold or "
+    "italics, no headings, no bullet points, no numbered lists, and no code "
+    "blocks. Write in plain spoken sentences only. Avoid symbols, asterisks, "
+    "and anything that would sound strange when spoken, and spell out short "
+    "forms, so say for example in full rather than writing it as a short "
+    "form.\n\n"
+    "Talk like a helpful friend sitting next to the person. Be warm but "
+    "professional, and use natural contractions like you'll, it's, and "
+    "don't.\n\n"
+    "With each question you also get a screenshot of the person's screen. Use "
+    "it to ground your answer, and point to what you see in plain language, "
+    "like the button near the top right, or the menu on the left side. If you "
+    "are not sure what they mean, ask one quick question to clarify."
+)
+
 
 class ClaudeNotInstalledError(RuntimeError):
     """Raised when the `claude` CLI cannot be found on PATH."""
@@ -84,6 +114,8 @@ class ClaudeClient:
             self._config.claude_model,
             "--output-format",
             "json",
+            "--append-system-prompt",
+            SYSTEM_PROMPT,
         ]
         if add_dir:
             cmd += ["--add-dir", add_dir]

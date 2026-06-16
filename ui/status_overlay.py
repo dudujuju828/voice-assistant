@@ -1,24 +1,22 @@
-"""Non-intrusive status overlay (Listening / Thinking / Speaking).
+"""Minimal status indicator — a tiny coloured dot, bottom-right.
 
-Frameless, always-on-top, click-through, and — critically — never steals
-focus. The no-activate / transparent ex-styles are applied via Win32 after
-``show()`` because Qt does not expose WS_EX_NOACTIVATE directly.
+The whole point is to be nearly invisible: no text, no emojis, no panel. Just a
+small low-opacity dot in the corner that changes colour with state, and is
+completely gone when idle. It never steals focus and is click-through, so it
+can't interfere with the user's work.
 """
 from __future__ import annotations
 
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont
-from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtWidgets import QWidget
 
 import monitors
 
 try:
-    import win32con
     import win32gui
 except ImportError:  # pragma: no cover - non-Windows dev import
-    win32con = None  # type: ignore
     win32gui = None  # type: ignore
 
 WS_EX_NOACTIVATE = 0x08000000
@@ -26,15 +24,26 @@ WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_TRANSPARENT = 0x00000020
 GWL_EXSTYLE = -20
 
-MARGIN = 32
-WIDTH = 240
-HEIGHT = 64
+# Tiny footprint, tucked into the very corner, barely there.
+MARGIN = 16
+SIZE = 40         # widget box
+DOT = 12          # the visible dot inside it
+OPACITY = 0.55
+
+# Per-state dot colours (R, G, B).
+_COLORS = {
+    "recording": (235, 70, 70),    # red — capturing your voice
+    "processing": (235, 180, 60),  # amber — thinking
+    "speaking": (80, 200, 120),    # green — talking back
+    "error": (200, 60, 60),        # deep red — something went wrong
+}
 
 
 class StatusOverlay(QWidget):
     def __init__(self, config) -> None:
         super().__init__()
         self._config = config
+        self._color = _COLORS["recording"]
 
         self.setWindowFlags(
             Qt.FramelessWindowHint
@@ -44,54 +53,54 @@ class StatusOverlay(QWidget):
         )
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        self.resize(WIDTH, HEIGHT)
-
-        self._label = QLabel("", self)
-        self._label.setAlignment(Qt.AlignCenter)
-        self._label.setGeometry(0, 0, WIDTH, HEIGHT)
-        font = QFont()
-        font.setPointSize(13)
-        font.setBold(True)
-        self._label.setFont(font)
-        self._label.setStyleSheet(
-            "color: white;"
-            "background-color: rgba(20, 20, 24, 200);"
-            "border-radius: 12px;"
-        )
-        # Silence unused-import style checkers for QColor (kept for theming).
-        _ = QColor
+        self.setWindowOpacity(OPACITY)
+        self.resize(SIZE, SIZE)
 
     # --- public status API --------------------------------------------------
 
-    def show_listening(self) -> None:
-        self._show_with_text("🎤  Listening…")
+    def show_recording(self) -> None:
+        self._show_dot("recording")
 
-    def show_thinking(self) -> None:
-        self._show_with_text("🤔  Thinking…")
+    def show_processing(self) -> None:
+        self._show_dot("processing")
 
     def show_speaking(self) -> None:
-        self._show_with_text("🔊  Speaking…")
+        self._show_dot("speaking")
 
-    def show_error(self, message: str = "Error") -> None:
-        self._show_with_text(f"⚠️  {message}")
+    def show_error(self, _message: str = "") -> None:
+        self._show_dot("error")
+
+    # --- painting -----------------------------------------------------------
+
+    def paintEvent(self, _event) -> None:  # noqa: N802 (Qt signature)
+        from PySide6.QtGui import QBrush, QColor, QPainter
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(QColor(*self._color)))
+        offset = (SIZE - DOT) // 2
+        painter.drawEllipse(offset, offset, DOT, DOT)
+        painter.end()
 
     # --- internals ----------------------------------------------------------
 
-    def _show_with_text(self, text: str) -> None:
-        self._label.setText(text)
+    def _show_dot(self, state: str) -> None:
+        self._color = _COLORS.get(state, _COLORS["recording"])
         self._reposition()
         if not self.isVisible():
             self.show()
             self._apply_no_activate()
         self.raise_()
+        self.update()
 
     def _reposition(self) -> None:
         rect = self._resolve_rect()
         if rect is None:
             return
         left, top, width, height = rect
-        x = left + width - WIDTH - MARGIN
-        y = top + height - HEIGHT - MARGIN
+        x = left + width - SIZE - MARGIN
+        y = top + height - SIZE - MARGIN
         self.move(x, y)
 
     def _resolve_rect(self) -> Optional[tuple[int, int, int, int]]:

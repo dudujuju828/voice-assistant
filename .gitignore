@@ -22,6 +22,7 @@ ENV/
 .architecture-research.json
 .architecture-final.json
 .scaffold-result.json
+.redesign-result.json
 
 # OS / editor
 .DS_Store

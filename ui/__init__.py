@@ -1,1 +1,1 @@
-"""UI widgets for Voice Assistant (tray, overlay, input window, settings)."""
+"""UI widgets for Voice Assistant (tray, status overlay, settings)."""
