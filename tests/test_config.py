@@ -263,6 +263,12 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.claude_model, DEFAULT_CLAUDE_MODEL)
             self.assertIsNone(config.session_id)
 
+            config.session_id = "  session-123  "
+            self.assertEqual(config.session_id, "session-123")
+
+            config.session_id = 123  # type: ignore[assignment]
+            self.assertIsNone(config.session_id)
+
     def test_legacy_default_hotkey_migrates_to_ctrl_win(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "VoiceAssistant"

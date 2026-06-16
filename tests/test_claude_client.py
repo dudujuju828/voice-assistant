@@ -44,6 +44,16 @@ class ClaudeClientParseTests(unittest.TestCase):
         with self.assertRaises(ClaudeError):
             client._parse_result(stdout)
 
+    def test_parse_result_ignores_non_string_session_id(self) -> None:
+        client = self._client()
+        client._config.session_id = "existing-session"
+        stdout = json.dumps({"result": "hello", "session_id": 123})
+
+        result = client._parse_result(stdout)
+
+        self.assertEqual(result, "hello")
+        self.assertEqual(client._config.session_id, "existing-session")
+
     def test_parse_result_accepts_last_json_line(self) -> None:
         client = self._client()
         stdout = "\n".join(

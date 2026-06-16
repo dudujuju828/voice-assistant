@@ -512,6 +512,10 @@ class Config:
 
     @session_id.setter
     def session_id(self, value: str | None) -> None:
+        if isinstance(value, str):
+            value = value.strip() or None
+        else:
+            value = None
         self.set("claude.session_id", value)
 
     def ensure_capture_monitor(self) -> str | None:

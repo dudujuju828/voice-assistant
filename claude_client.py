@@ -164,7 +164,7 @@ class ClaudeClient:
         payload = self._load_json_payload(stdout)
 
         new_session = payload.get("session_id")
-        if new_session:
+        if isinstance(new_session, str) and new_session.strip():
             self._config.session_id = new_session
 
         if payload.get("is_error"):
