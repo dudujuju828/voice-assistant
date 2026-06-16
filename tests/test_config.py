@@ -65,6 +65,9 @@ class ConfigTests(unittest.TestCase):
             config.set("capture.delay_ms", -1)
             self.assertEqual(config.capture_delay_ms, 0)
 
+            config.capture_delay_ms = MAX_CAPTURE_DELAY_MS + 1
+            self.assertEqual(config.capture_delay_ms, MAX_CAPTURE_DELAY_MS)
+
     def test_tts_settings_are_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = self._load_with_appdata(Path(tmp))

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QSpinBox,
 )
 
 import monitors
@@ -145,6 +146,13 @@ class SettingsDialog(QDialog):
                 break
         form.addRow("Transcript capture:", self._capture_method_combo)
 
+        self._capture_delay_input = QSpinBox(self)
+        self._capture_delay_input.setRange(0, 10000)
+        self._capture_delay_input.setSingleStep(100)
+        self._capture_delay_input.setSuffix(" ms")
+        self._capture_delay_input.setValue(config.capture_delay_ms)
+        form.addRow("Capture delay:", self._capture_delay_input)
+
         # --- hotkey (read-only for now) ---
         mods = config.get("hotkey.mods", ["ctrl"])
         vk = config.get("hotkey.vk", "Win")
@@ -227,6 +235,7 @@ class SettingsDialog(QDialog):
         capture_method = self._capture_method_combo.currentData()
         if capture_method:
             updates["capture.method"] = capture_method
+        updates["capture.delay_ms"] = self._capture_delay_input.value()
         claude_model = _combo_value(self._claude_model_combo)
         if claude_model:
             updates["claude.model"] = claude_model

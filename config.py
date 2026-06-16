@@ -322,6 +322,14 @@ class Config:
             return DEFAULT_CAPTURE_DELAY_MS
         return max(0, min(value, MAX_CAPTURE_DELAY_MS))
 
+    @capture_delay_ms.setter
+    def capture_delay_ms(self, value: int) -> None:
+        try:
+            delay = int(value)
+        except (TypeError, ValueError):
+            delay = DEFAULT_CAPTURE_DELAY_MS
+        self.set("capture.delay_ms", max(0, min(delay, MAX_CAPTURE_DELAY_MS)))
+
     @property
     def session_id(self) -> str | None:
         value = self.get("claude.session_id")

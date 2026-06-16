@@ -54,8 +54,7 @@ python main.py
   selected placeholder text. Use this when Wispr needs a visible editable field
   or selected text before it will replace the current contents.
 
-Set the method in Settings. The post-release delay still lives in `capture` in
-the config file.
+Set the method and post-release delay in Settings.
 
 Config is stored at `%APPDATA%\VoiceAssistant\config.json`; the Claude session
 id persists there so conversations carry across questions and restarts. The
