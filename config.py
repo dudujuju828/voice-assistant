@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -123,44 +124,47 @@ class Config:
     """Thin wrapper over the JSON config file with dotted-key access."""
 
     def __init__(self) -> None:
+        self._lock = threading.RLock()
         self._data: dict[str, Any] = _default_config()
         self.load()
 
     # --- persistence --------------------------------------------------------
 
     def load(self) -> None:
-        path = _config_path()
-        try:
-            with open(path, "r", encoding="utf-8-sig") as fh:
-                stored = json.load(fh)
-            if not isinstance(stored, dict):
-                raise ValueError("Config root must be an object.")
-            self._data = _deep_merge(_default_config(), stored)
-            if self._migrate():
+        with self._lock:
+            path = _config_path()
+            try:
+                with open(path, "r", encoding="utf-8-sig") as fh:
+                    stored = json.load(fh)
+                if not isinstance(stored, dict):
+                    raise ValueError("Config root must be an object.")
+                self._data = _deep_merge(_default_config(), stored)
+                if self._migrate():
+                    self.save()
+            except FileNotFoundError:
+                # First run: start from defaults and persist them.
+                self._data = _default_config()
                 self.save()
-        except FileNotFoundError:
-            # First run: start from defaults and persist them.
-            self._data = _default_config()
-            self.save()
-        except (json.JSONDecodeError, ValueError):
-            # Corrupt file: keep a copy, then replace with known-good defaults.
-            _backup_corrupt_config(path)
-            self._data = _default_config()
-            self.save()
-        except OSError as exc:
-            # If the config cannot be read due to permissions/locking, run with
-            # defaults in memory and avoid overwriting a file we could not read.
-            logger.warning("Could not read config at %s: %s", path, exc)
-            self._data = _default_config()
+            except (json.JSONDecodeError, ValueError):
+                # Corrupt file: keep a copy, then replace with known-good defaults.
+                _backup_corrupt_config(path)
+                self._data = _default_config()
+                self.save()
+            except OSError as exc:
+                # If the config cannot be read due to permissions/locking, run with
+                # defaults in memory and avoid overwriting a file we could not read.
+                logger.warning("Could not read config at %s: %s", path, exc)
+                self._data = _default_config()
 
     def save(self) -> None:
-        path = _config_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".json.tmp")
-        with open(tmp, "w", encoding="utf-8") as fh:
-            json.dump(self._data, fh, indent=2)
-            fh.write("\n")
-        os.replace(tmp, path)
+        with self._lock:
+            path = _config_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".json.tmp")
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(self._data, fh, indent=2)
+                fh.write("\n")
+            os.replace(tmp, path)
 
     def _migrate(self) -> bool:
         """Apply safe config migrations for historical defaults."""
@@ -178,21 +182,24 @@ class Config:
     # --- generic access -----------------------------------------------------
 
     def get(self, dotted_key: str, default: Any = None) -> Any:
-        node: Any = self._data
-        for part in dotted_key.split("."):
-            if not isinstance(node, dict) or part not in node:
-                return default
-            node = node[part]
-        return node
+        with self._lock:
+            node: Any = self._data
+            for part in dotted_key.split("."):
+                if not isinstance(node, dict) or part not in node:
+                    return default
+                node = node[part]
+            return node
 
     def set(self, dotted_key: str, value: Any) -> None:
-        self._set_in_memory(dotted_key, value)
-        self.save()
+        with self._lock:
+            self._set_in_memory(dotted_key, value)
+            self.save()
 
     def set_many(self, values: dict[str, Any]) -> None:
-        for dotted_key, value in values.items():
-            self._set_in_memory(dotted_key, value)
-        self.save()
+        with self._lock:
+            for dotted_key, value in values.items():
+                self._set_in_memory(dotted_key, value)
+            self.save()
 
     def _set_in_memory(self, dotted_key: str, value: Any) -> None:
         parts = dotted_key.split(".")

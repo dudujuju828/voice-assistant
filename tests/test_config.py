@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -112,6 +113,33 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.claude_model, "sonnet")
             self.assertEqual(config.claude_effort, "low")
             self.assertEqual(config.tts_speed, 1.1)
+
+    def test_concurrent_writes_leave_valid_json(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+            path = Path(tmp) / "VoiceAssistant" / "config.json"
+
+            def write_value(index: int) -> None:
+                for _ in range(5):
+                    config.set_many(
+                        {
+                            "claude.model": f"model-{index}",
+                            "elevenlabs.speed": 1.0,
+                        }
+                    )
+
+            threads = [
+                threading.Thread(target=write_value, args=(i,))
+                for i in range(4)
+            ]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            payload = json.loads(path.read_text())
+            self.assertIn("claude", payload)
+            self.assertIn("elevenlabs", payload)
 
     def test_string_settings_fall_back_on_wrong_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
