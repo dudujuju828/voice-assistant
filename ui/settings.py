@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 
 import requests
+from dotenv import load_dotenv
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -15,6 +16,8 @@ from PySide6.QtWidgets import (
 )
 
 import monitors
+
+load_dotenv()
 
 # Hardcoded fallback so the picker works offline / without an API key.
 _FALLBACK_VOICES = [
@@ -55,7 +58,7 @@ def _fetch_voices() -> list[tuple[str, str]]:
         resp = requests.get(
             "https://api.elevenlabs.io/v1/voices",
             headers={"xi-api-key": key},
-            timeout=8,
+            timeout=4,
         )
         resp.raise_for_status()
         voices = resp.json().get("voices", [])
