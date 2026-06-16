@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,8 @@ DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"
 DEFAULT_CLAUDE_MODEL = "opus"
 CAPTURE_METHODS = {"clipboard", "hidden_input"}
+DEFAULT_CAPTURE_DELAY_MS = 500
+MAX_CAPTURE_DELAY_MS = 10_000
 
 
 def _default_config() -> dict[str, Any]:
@@ -32,7 +35,7 @@ def _default_config() -> dict[str, Any]:
         #   "clipboard"    — Wispr copies the transcription; we read the clipboard.
         #   "hidden_input" — Wispr types into an invisible focused box.
         # delay_ms gives Wispr a moment to finish writing before we read.
-        "capture": {"method": "clipboard", "delay_ms": 500},
+        "capture": {"method": "clipboard", "delay_ms": DEFAULT_CAPTURE_DELAY_MS},
         "elevenlabs": {
             "voice_id": DEFAULT_VOICE_ID,
             "model_id": DEFAULT_TTS_MODEL,
@@ -51,6 +54,15 @@ def _config_dir() -> Path:
 
 def _config_path() -> Path:
     return _config_dir() / "config.json"
+
+
+def _backup_corrupt_config(path: Path) -> None:
+    """Preserve a bad config before replacing it with defaults."""
+    try:
+        backup = path.with_suffix(".json.corrupt")
+        shutil.copy2(path, backup)
+    except OSError:
+        pass
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -76,13 +88,25 @@ class Config:
     def load(self) -> None:
         path = _config_path()
         try:
-            with open(path, "r", encoding="utf-8") as fh:
+            with open(path, "r", encoding="utf-8-sig") as fh:
                 stored = json.load(fh)
+            if not isinstance(stored, dict):
+                raise ValueError("Config root must be an object.")
             self._data = _deep_merge(_default_config(), stored)
-        except (FileNotFoundError, json.JSONDecodeError, OSError):
-            # First run or corrupt file: start from defaults and persist them.
+        except FileNotFoundError:
+            # First run: start from defaults and persist them.
             self._data = _default_config()
             self.save()
+        except (json.JSONDecodeError, ValueError):
+            # Corrupt file: keep a copy, then replace with known-good defaults.
+            _backup_corrupt_config(path)
+            self._data = _default_config()
+            self.save()
+        except OSError as exc:
+            # If the config cannot be read due to permissions/locking, run with
+            # defaults in memory and avoid overwriting a file we could not read.
+            print(f"[config] Could not read {path}: {exc}")
+            self._data = _default_config()
 
     def save(self) -> None:
         path = _config_path()
@@ -90,6 +114,7 @@ class Config:
         tmp = path.with_suffix(".json.tmp")
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(self._data, fh, indent=2)
+            fh.write("\n")
         os.replace(tmp, path)
 
     # --- generic access -----------------------------------------------------
@@ -106,7 +131,11 @@ class Config:
         parts = dotted_key.split(".")
         node = self._data
         for part in parts[:-1]:
-            node = node.setdefault(part, {})
+            child = node.get(part)
+            if not isinstance(child, dict):
+                child = {}
+                node[part] = child
+            node = child
         node[parts[-1]] = value
         self.save()
 
@@ -151,7 +180,11 @@ class Config:
     @property
     def capture_delay_ms(self) -> int:
         """How long to wait after hotkey release for Wispr to finish writing."""
-        return int(self.get("capture.delay_ms", 500))
+        try:
+            value = int(self.get("capture.delay_ms", DEFAULT_CAPTURE_DELAY_MS))
+        except (TypeError, ValueError):
+            return DEFAULT_CAPTURE_DELAY_MS
+        return max(0, min(value, MAX_CAPTURE_DELAY_MS))
 
     @property
     def session_id(self) -> str | None:
