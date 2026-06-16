@@ -6,7 +6,7 @@ import sys
 from ctypes import wintypes
 
 ERROR_ALREADY_EXISTS = 183
-MUTEX_NAME = "Global\\VoiceAssistantTrayApp"
+MUTEX_NAME = "Local\\VoiceAssistantTrayApp"
 
 
 class SingleInstance:
