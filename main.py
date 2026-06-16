@@ -21,6 +21,7 @@ from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon  # noqa: E402
 
 import capture  # noqa: E402
+import runtime_checks  # noqa: E402
 import tts  # noqa: E402
 from claude_client import (  # noqa: E402
     ClaudeClient,
@@ -125,6 +126,11 @@ class VoiceAssistant(QObject):
         self._visible_input = VisibleInput(self._config)
         self._tray = Tray()
         self._tray.show()
+        if runtime_checks.is_running_elevated():
+            self._tray.notify(
+                "Voice Assistant is elevated",
+                "Run normally so Wispr can type into the capture input.",
+            )
 
         self._tray.open_settings.connect(self._open_settings)
         self._tray.toggle_pause.connect(self._on_pause_toggled)
