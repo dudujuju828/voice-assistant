@@ -195,6 +195,7 @@ class SettingsDialog(QDialog):
 
         # --- voice dropdown ---
         self._voice_combo = QComboBox(self)
+        self._voice_combo.setEditable(True)
         current_voice = config.voice_id
         voice_found = False
         selected_index = 0
@@ -255,7 +256,7 @@ class SettingsDialog(QDialog):
         device = self._monitor_combo.currentData()
         if device is not None:
             updates["capture_monitor_device"] = device
-        voice_id = self._voice_combo.currentData()
+        voice_id = _combo_value(self._voice_combo)
         if voice_id:
             updates["elevenlabs.voice_id"] = voice_id
         capture_method = self._capture_method_combo.currentData()

@@ -63,9 +63,9 @@ Diagnostics are written to `%APPDATA%\VoiceAssistant\voice-assistant.log`.
 
 ### Model and voice settings
 
-Settings includes editable Claude and ElevenLabs model fields. Claude effort
-maps to the Claude Code CLI `--effort` option (`low`, `medium`, `high`,
-`xhigh`, `max`) and can be left at `default` to omit the flag. Claude and
-ElevenLabs timeouts are configurable and bounded. ElevenLabs stability,
-similarity, and speed are also bounded before use so bad config values fall
-back to safe ranges.
+Settings includes editable Claude model, ElevenLabs model, and ElevenLabs voice
+fields. Claude effort maps to the Claude Code CLI `--effort` option (`low`,
+`medium`, `high`, `xhigh`, `max`) and can be left at `default` to omit the
+flag. Claude and ElevenLabs timeouts are configurable and bounded. ElevenLabs
+stability, similarity, and speed are also bounded before use so bad config
+values fall back to safe ranges.
