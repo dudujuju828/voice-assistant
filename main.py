@@ -332,8 +332,14 @@ class VoiceAssistant(QObject):
     def _on_pause_toggled(self, paused: bool) -> None:
         if self._hotkey is None:
             self._tray.notify("Hotkey unavailable", "No hotkey hook is active.")
+            self._tray.set_paused(False)
             return
-        self._hotkey.set_paused(paused)
+        if not self._hotkey.set_paused(paused):
+            self._tray.set_paused(True)
+            self._tray.notify(
+                "Hotkey unavailable",
+                "Could not reinstall the keyboard hook for the hotkey.",
+            )
 
     def _quit(self) -> None:
         if self._hotkey is not None:

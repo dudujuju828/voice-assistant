@@ -174,13 +174,19 @@ class HotkeyManager(QObject):
         self._registered = False
         self._active = False
 
-    def set_paused(self, paused: bool) -> None:
+    def set_paused(self, paused: bool) -> bool:
         """Pause/resume by tearing the hook down / reinstalling it."""
-        self._paused = paused
         if paused:
+            self._paused = True
             self.unregister()
-        else:
-            self.register()
+            return True
+
+        if self.register():
+            self._paused = False
+            return True
+
+        self._paused = True
+        return False
 
     @property
     def paused(self) -> bool:

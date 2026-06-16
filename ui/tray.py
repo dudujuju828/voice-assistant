@@ -1,7 +1,7 @@
 """System tray icon + menu (Settings / Pause hotkey / Quit)."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSignalBlocker, Qt, Signal
 from PySide6.QtGui import QAction, QBrush, QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 
@@ -61,6 +61,14 @@ class Tray(QSystemTrayIcon):
     def _on_pause_toggled(self, checked: bool) -> None:
         self._pause_action.setText("Resume Hotkey" if checked else "Pause Hotkey")
         self.toggle_pause.emit(checked)
+
+    def set_paused(self, paused: bool) -> None:
+        blocker = QSignalBlocker(self._pause_action)
+        try:
+            self._pause_action.setChecked(paused)
+            self._pause_action.setText("Resume Hotkey" if paused else "Pause Hotkey")
+        finally:
+            del blocker
 
     def notify(self, title: str, message: str) -> None:
         """Balloon notification for errors / status."""
