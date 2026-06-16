@@ -181,15 +181,16 @@ class ClaudeClient:
             payload = json.loads(stdout)
         except json.JSONDecodeError:
             payload = None
-            for line in reversed(stdout.splitlines()):
-                line = line.strip()
-                if not line.startswith("{"):
+            decoder = json.JSONDecoder()
+            for index, char in enumerate(stdout):
+                if char != "{":
                     continue
                 try:
-                    payload = json.loads(line)
-                    break
+                    candidate, _end = decoder.raw_decode(stdout[index:])
                 except json.JSONDecodeError:
                     continue
+                if isinstance(candidate, dict):
+                    payload = candidate
 
         if not isinstance(payload, dict):
             raise ClaudeError("Could not parse Claude's JSON output.")

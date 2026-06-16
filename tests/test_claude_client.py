@@ -58,6 +58,18 @@ class ClaudeClientParseTests(unittest.TestCase):
         self.assertEqual(result, "from json line")
         self.assertEqual(client._config.session_id, "session-456")
 
+    def test_parse_result_accepts_embedded_pretty_json(self) -> None:
+        client = self._client()
+        stdout = "warning: ignored non-json output\n" + json.dumps(
+            {"result": "from pretty json", "session_id": "session-pretty"},
+            indent=2,
+        )
+
+        result = client._parse_result(stdout)
+
+        self.assertEqual(result, "from pretty json")
+        self.assertEqual(client._config.session_id, "session-pretty")
+
     def test_parse_result_rejects_non_object_json(self) -> None:
         client = self._client()
 
