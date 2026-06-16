@@ -79,6 +79,7 @@ def _default_config() -> dict[str, Any]:
         "capture": {
             "method": DEFAULT_CAPTURE_METHOD,
             "delay_ms": DEFAULT_CAPTURE_DELAY_MS,
+            "legacy_default_migrated": True,
         },
         "elevenlabs": {
             "voice_id": DEFAULT_VOICE_ID,
@@ -134,6 +135,16 @@ def _same_hotkey(mods: Any, vk: Any, expected_mods: list[str], expected_vk: str)
         return False
     normalized_mods = [str(mod).lower() for mod in mods]
     return normalized_mods == expected_mods and vk.lower() == expected_vk.lower()
+
+
+def _should_migrate_legacy_capture_default(stored: dict[str, Any]) -> bool:
+    capture = stored.get("capture")
+    if not isinstance(capture, dict):
+        return False
+    return (
+        capture.get("method") == "clipboard"
+        and not capture.get("legacy_default_migrated")
+    )
 
 
 def _bounded_float(value: Any, default: float, minimum: float, maximum: float) -> float:
@@ -203,8 +214,11 @@ class Config:
                     stored = json.load(fh)
                 if not isinstance(stored, dict):
                     raise ValueError("Config root must be an object.")
+                migrate_legacy_capture_default = (
+                    _should_migrate_legacy_capture_default(stored)
+                )
                 self._data = _deep_merge(_default_config(), stored)
-                if self._migrate():
+                if self._migrate(migrate_legacy_capture_default):
                     self.save()
             except FileNotFoundError:
                 # First run: start from defaults and persist them.
@@ -231,8 +245,17 @@ class Config:
                 fh.write("\n")
             os.replace(tmp, path)
 
-    def _migrate(self) -> bool:
+    def _migrate(self, migrate_legacy_capture_default: bool = False) -> bool:
         """Apply safe config migrations for historical defaults."""
+        changed = False
+
+        if migrate_legacy_capture_default:
+            capture = self._data.setdefault("capture", {})
+            if isinstance(capture, dict):
+                capture["method"] = DEFAULT_CAPTURE_METHOD
+                capture["legacy_default_migrated"] = True
+                changed = True
+
         mods = self.get("hotkey.mods")
         vk = self.get("hotkey.vk")
         for legacy_mods, legacy_vk in LEGACY_DEFAULT_HOTKEYS:
@@ -241,8 +264,8 @@ class Config:
                 if isinstance(hotkey, dict):
                     hotkey["mods"] = list(DEFAULT_HOTKEY_MODS)
                     hotkey["vk"] = DEFAULT_HOTKEY_VK
-                    return True
-        return False
+                    changed = True
+        return changed
 
     # --- generic access -----------------------------------------------------
 

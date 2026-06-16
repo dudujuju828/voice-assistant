@@ -89,6 +89,44 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(config.capture_method, DEFAULT_CAPTURE_METHOD)
 
+    def test_legacy_clipboard_default_migrates_to_visible_input(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "VoiceAssistant"
+            config_dir.mkdir()
+            path = config_dir / "config.json"
+            path.write_text(
+                json.dumps({"capture": {"method": "clipboard"}}),
+                encoding="utf-8",
+            )
+
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.capture_method, DEFAULT_CAPTURE_METHOD)
+            persisted = json.loads(path.read_text())
+            self.assertEqual(persisted["capture"]["method"], DEFAULT_CAPTURE_METHOD)
+            self.assertTrue(persisted["capture"]["legacy_default_migrated"])
+
+    def test_explicit_clipboard_choice_survives_after_migration(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "VoiceAssistant"
+            config_dir.mkdir()
+            path = config_dir / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "capture": {
+                            "method": "clipboard",
+                            "legacy_default_migrated": True,
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.capture_method, "clipboard")
+
     def test_tts_settings_are_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = self._load_with_appdata(Path(tmp))

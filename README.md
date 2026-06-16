@@ -54,6 +54,9 @@ python main.py
   insertion point before it will emit the transcript.
 
 Set the method and post-release delay in Settings.
+Older configs that still have the historical default `clipboard` method are
+migrated once to `visible_input`; choosing `clipboard` in Settings afterward is
+preserved.
 
 Config is stored at `%APPDATA%\VoiceAssistant\config.json`; the Claude session
 id persists there so conversations carry across questions and restarts. The
