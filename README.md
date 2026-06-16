@@ -30,9 +30,8 @@ python main.py
 
 1. The app runs in the system tray with no window.
 2. Bind Wispr Flow to **Ctrl+Win** (the same hotkey the app listens for).
-   Set Wispr to copy its transcription to the clipboard (the default capture
-   method) or to type it into the focused app (choose `Hidden input` in
-   Settings).
+   Set Wispr to type into the focused app for the default visible text box
+   capture method, or choose another capture method in Settings.
 3. **Hold Ctrl+Win**, speak your question, then **release**. Wispr stops
    and hands over the text; the app takes it from there silently.
 4. The only visible cue is a small dot in the bottom-right corner: red while
@@ -43,16 +42,16 @@ python main.py
 
 ### Capture methods
 
-- `clipboard` (default) — Wispr copies the transcription; the app reads the
+- `visible_input` (default) - Wispr types into a small bottom-of-screen text box
+  with selected placeholder text. Use this when Wispr needs a visible editable
+  field or selected text before it will replace the current contents.
+- `clipboard` — Wispr copies the transcription; the app reads the
   clipboard a moment after you release the key. If the clipboard does not
   change during recording, the app ignores the turn instead of reusing stale
   text from the previous request.
 - `hidden_input` — Wispr types into an invisible, off-screen box that the app
   reads back. Use this when Wispr needs a focused text field or active
   insertion point before it will emit the transcript.
-- `visible_input` - Wispr types into a small bottom-of-screen text box with
-  selected placeholder text. Use this when Wispr needs a visible editable field
-  or selected text before it will replace the current contents.
 
 Set the method and post-release delay in Settings.
 

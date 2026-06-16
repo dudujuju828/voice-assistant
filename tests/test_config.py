@@ -49,9 +49,12 @@ class ConfigTests(unittest.TestCase):
 
             config = self._load_with_appdata(Path(tmp))
 
-            self.assertEqual(config.capture_method, "clipboard")
+            self.assertEqual(config.capture_method, "visible_input")
             self.assertTrue(path.with_suffix(".json.corrupt").exists())
-            self.assertEqual(json.loads(path.read_text())["capture"]["method"], "clipboard")
+            self.assertEqual(
+                json.loads(path.read_text())["capture"]["method"],
+                "visible_input",
+            )
 
     def test_capture_delay_is_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

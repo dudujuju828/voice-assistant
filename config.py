@@ -51,7 +51,7 @@ def _default_config() -> dict[str, Any]:
         #   "clipboard"    — Wispr copies the transcription; we read the clipboard.
         #   "hidden_input" — Wispr types into an invisible focused box.
         # delay_ms gives Wispr a moment to finish writing before we read.
-        "capture": {"method": "clipboard", "delay_ms": DEFAULT_CAPTURE_DELAY_MS},
+        "capture": {"method": "visible_input", "delay_ms": DEFAULT_CAPTURE_DELAY_MS},
         "elevenlabs": {
             "voice_id": DEFAULT_VOICE_ID,
             "model_id": DEFAULT_TTS_MODEL,

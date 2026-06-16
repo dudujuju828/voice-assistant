@@ -51,14 +51,16 @@ We need both key *down* and key *up*, so `RegisterHotKey` (down-only,
 Semantics: hold the combo → Wispr (bound to the same keys) records → release →
 we capture the transcript, screenshot, and run a Claude turn.
 
-### Capturing the transcript silently (no visible input box)
-There is **no on-screen input window**. Two capture methods (config
-`capture.method`):
+### Capturing the transcript
+There are three capture methods (config `capture.method`):
 
-1. **`clipboard`** (default) — Wispr is set to copy its transcription. After the
+1. **`visible_input`** (default) — Wispr types into a small focused text box
+   with selected placeholder text near the bottom of the screen; we read and
+   clear it after release.
+2. **`clipboard`** — Wispr is set to copy its transcription. After the
    key is released we wait `capture.delay_ms` (default 500 ms) for Wispr to
    finish, then read `QApplication.clipboard().text()`.
-2. **`hidden_input`** — an invisible, off-screen `QLineEdit` (`hidden_input.py`)
+3. **`hidden_input`** — an invisible, off-screen `QLineEdit` (`hidden_input.py`)
    that briefly grabs focus on press via `SetForegroundWindow` so Wispr's
    keystrokes land there; we read and clear it after release.
 
