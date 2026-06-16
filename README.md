@@ -39,7 +39,7 @@ python main.py
    recording, amber while thinking, green while speaking. It's gone when idle.
 5. Right-click the tray icon for **Settings** (capture monitor, capture method,
    Claude model/effort, voice, and TTS quality),
-   **Pause Hotkey**, or **Quit**.
+   **Reset Claude Session**, **Pause Hotkey**, or **Quit**.
 
 ### Capture methods
 

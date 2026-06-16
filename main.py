@@ -139,6 +139,7 @@ class VoiceAssistant(QObject):
             )
 
         self._tray.open_settings.connect(self._open_settings)
+        self._tray.reset_session.connect(self._reset_claude_session)
         self._tray.toggle_pause.connect(self._on_pause_toggled)
         self._tray.quit_requested.connect(self._quit)
         clipboard = self._app.clipboard()
@@ -293,6 +294,11 @@ class VoiceAssistant(QObject):
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self._config)
         dialog.exec()
+
+    def _reset_claude_session(self) -> None:
+        self._config.session_id = None
+        logger.info("Claude session reset by user.")
+        self._tray.notify("Voice Assistant", "Claude session reset.")
 
     def _on_pause_toggled(self, paused: bool) -> None:
         if self._hotkey is None:

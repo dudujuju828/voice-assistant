@@ -27,6 +27,7 @@ def _build_icon() -> QIcon:
 
 class Tray(QSystemTrayIcon):
     open_settings = Signal()
+    reset_session = Signal()
     toggle_pause = Signal(bool)
     quit_requested = Signal()
 
@@ -39,6 +40,10 @@ class Tray(QSystemTrayIcon):
         self._settings_action = QAction("Settings", menu)
         self._settings_action.triggered.connect(self.open_settings.emit)
         menu.addAction(self._settings_action)
+
+        self._reset_session_action = QAction("Reset Claude Session", menu)
+        self._reset_session_action.triggered.connect(self.reset_session.emit)
+        menu.addAction(self._reset_session_action)
 
         self._pause_action = QAction("Pause Hotkey", menu)
         self._pause_action.setCheckable(True)
