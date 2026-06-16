@@ -89,6 +89,9 @@ class VoiceAssistant(QObject):
 
         self._busy = False
         self._recording = False
+        self._clipboard_capture_active = False
+        self._clipboard_changed_during_capture = False
+        self._clipboard_text_before_capture: str | None = None
         self._ask_worker: AskWorker | None = None
         self._speak_worker: SpeakWorker | None = None
 
@@ -101,6 +104,9 @@ class VoiceAssistant(QObject):
         self._tray.open_settings.connect(self._open_settings)
         self._tray.toggle_pause.connect(self._on_pause_toggled)
         self._tray.quit_requested.connect(self._quit)
+        clipboard = self._app.clipboard()
+        if clipboard:
+            clipboard.dataChanged.connect(self._on_clipboard_changed)
 
         # --- Claude client ---
         self._client: ClaudeClient | None = None
@@ -138,6 +144,8 @@ class VoiceAssistant(QObject):
         self._overlay.show_recording()
         if self._config.capture_method == "hidden_input":
             self._hidden.focus_for_capture()
+        else:
+            self._begin_clipboard_capture()
 
     def _on_release(self) -> None:
         """Hotkey up: give Wispr a moment, then capture and process."""
@@ -167,7 +175,32 @@ class VoiceAssistant(QObject):
         if self._config.capture_method == "hidden_input":
             return self._hidden.read_and_clear()
         clipboard = self._app.clipboard()
-        return clipboard.text() if clipboard else ""
+        text = clipboard.text().strip() if clipboard else ""
+        changed = self._clipboard_changed_during_capture
+        previous = self._clipboard_text_before_capture
+
+        self._clipboard_capture_active = False
+        self._clipboard_changed_during_capture = False
+        self._clipboard_text_before_capture = None
+
+        if not text:
+            return ""
+        if not changed and previous is not None and text == previous:
+            # Wispr did not publish a fresh transcript; do not replay stale text.
+            return ""
+        return text
+
+    def _begin_clipboard_capture(self) -> None:
+        clipboard = self._app.clipboard()
+        self._clipboard_capture_active = True
+        self._clipboard_changed_during_capture = False
+        self._clipboard_text_before_capture = (
+            clipboard.text().strip() if clipboard else None
+        )
+
+    def _on_clipboard_changed(self) -> None:
+        if self._clipboard_capture_active:
+            self._clipboard_changed_during_capture = True
 
     def _on_reply(self, reply: str) -> None:
         self._overlay.show_speaking()

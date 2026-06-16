@@ -16,6 +16,7 @@ from typing import Any
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"
 DEFAULT_CLAUDE_MODEL = "opus"
+CAPTURE_METHODS = {"clipboard", "hidden_input"}
 
 
 def _default_config() -> dict[str, Any]:
@@ -138,7 +139,14 @@ class Config:
     @property
     def capture_method(self) -> str:
         """Either "clipboard" (default) or "hidden_input"."""
-        return self.get("capture.method", "clipboard")
+        method = self.get("capture.method", "clipboard")
+        return method if method in CAPTURE_METHODS else "clipboard"
+
+    @capture_method.setter
+    def capture_method(self, value: str) -> None:
+        if value not in CAPTURE_METHODS:
+            raise ValueError(f"Unknown capture method: {value!r}")
+        self.set("capture.method", value)
 
     @property
     def capture_delay_ms(self) -> int:

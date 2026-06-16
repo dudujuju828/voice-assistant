@@ -1,4 +1,4 @@
-"""Settings dialog: capture monitor, hotkey display, ElevenLabs voice."""
+"""Settings dialog: capture monitor, transcript capture, hotkey, voice."""
 from __future__ import annotations
 
 import os
@@ -70,6 +70,17 @@ class SettingsDialog(QDialog):
             self._monitor_combo.addItem("No monitors detected", None)
         form.addRow("Capture monitor:", self._monitor_combo)
 
+        # --- transcript capture method ---
+        self._capture_method_combo = QComboBox(self)
+        self._capture_method_combo.addItem("Clipboard (Wispr copy)", "clipboard")
+        self._capture_method_combo.addItem("Hidden input (Wispr type)", "hidden_input")
+        current_method = config.capture_method
+        for index in range(self._capture_method_combo.count()):
+            if self._capture_method_combo.itemData(index) == current_method:
+                self._capture_method_combo.setCurrentIndex(index)
+                break
+        form.addRow("Transcript capture:", self._capture_method_combo)
+
         # --- hotkey (read-only for now) ---
         mods = config.get("hotkey.mods", ["ctrl", "shift"])
         vk = config.get("hotkey.vk", "Space")
@@ -111,4 +122,7 @@ class SettingsDialog(QDialog):
         voice_id = self._voice_combo.currentData()
         if voice_id:
             self._config.voice_id = voice_id
+        capture_method = self._capture_method_combo.currentData()
+        if capture_method:
+            self._config.capture_method = capture_method
         self.accept()

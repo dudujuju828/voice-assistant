@@ -111,10 +111,23 @@ class HotkeyManager(QObject):
 
         self._user32 = ctypes.windll.user32
         self._kernel32 = ctypes.windll.kernel32
+        # Declare argtypes too: without them ctypes assumes 32-bit c_int args,
+        # which overflows on 64-bit handles/pointers (hmod, the LPARAM struct
+        # address, the HHOOK) and raises "int too long to convert".
         self._user32.SetWindowsHookExW.restype = wintypes.HHOOK
+        self._user32.SetWindowsHookExW.argtypes = [
+            ctypes.c_int, _HOOKPROC, wintypes.HMODULE, wintypes.DWORD
+        ]
         self._user32.CallNextHookEx.restype = ctypes.c_long
+        self._user32.CallNextHookEx.argtypes = [
+            wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
+        ]
+        self._user32.UnhookWindowsHookEx.restype = wintypes.BOOL
+        self._user32.UnhookWindowsHookEx.argtypes = [wintypes.HHOOK]
         self._user32.GetAsyncKeyState.restype = ctypes.c_short
+        self._user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
         self._kernel32.GetModuleHandleW.restype = wintypes.HMODULE
+        self._kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
 
         # Keep a strong reference to the callback for the hook's lifetime.
         self._proc = _HOOKPROC(self._on_event)
