@@ -34,6 +34,14 @@ class FailingCaptureInput:
         raise RuntimeError("focus failed")
 
 
+class FakeClipboard:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def text(self) -> str:
+        return self._text
+
+
 class MainStateTests(unittest.TestCase):
     def _assistant(self) -> VoiceAssistant:
         assistant = VoiceAssistant.__new__(VoiceAssistant)
@@ -89,6 +97,27 @@ class MainStateTests(unittest.TestCase):
         self.assertIsNone(assistant._active_capture_method)
         self.assertIn("error", assistant._overlay.events)
         self.assertIn("Transcript capture failed", assistant._tray.notifications[0][1])
+
+    def test_clipboard_capture_ignores_unchanged_text(self) -> None:
+        assistant = self._assistant()
+        assistant._app = SimpleNamespace(clipboard=lambda: FakeClipboard("old text"))
+        assistant._clipboard_capture_active = True
+        assistant._clipboard_changed_during_capture = False
+        assistant._clipboard_text_before_capture = "old text"
+
+        self.assertEqual(assistant._read_clipboard_transcript(), "")
+        self.assertFalse(assistant._clipboard_capture_active)
+        self.assertFalse(assistant._clipboard_changed_during_capture)
+        self.assertIsNone(assistant._clipboard_text_before_capture)
+
+    def test_clipboard_capture_accepts_changed_text(self) -> None:
+        assistant = self._assistant()
+        assistant._app = SimpleNamespace(clipboard=lambda: FakeClipboard("new text"))
+        assistant._clipboard_capture_active = True
+        assistant._clipboard_changed_during_capture = True
+        assistant._clipboard_text_before_capture = "old text"
+
+        self.assertEqual(assistant._read_clipboard_transcript(), "new text")
 
 
 if __name__ == "__main__":
