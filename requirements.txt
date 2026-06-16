@@ -1,0 +1,6 @@
+PySide6
+mss
+pywin32
+requests
+sounddevice
+python-dotenv
