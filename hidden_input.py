@@ -13,7 +13,7 @@ fallback for people who can't or don't want to use clipboard copy.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLineEdit, QWidget
+from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 import monitors
 
@@ -124,16 +124,33 @@ class VisibleInput(QWidget):
         return text
 
     def _reposition(self) -> None:
+        rect = self._resolve_rect()
+        if rect is None:
+            return
+        left, top, width, height = rect
+        available_width = max(1, width - (VISIBLE_MARGIN * 2))
+        box_width = min(VISIBLE_WIDTH, available_width)
+        self.resize(box_width, VISIBLE_HEIGHT)
+        self._edit.setGeometry(0, 0, box_width, VISIBLE_HEIGHT)
+        x = left + ((width - box_width) // 2)
+        y = top + max(0, height - VISIBLE_HEIGHT - VISIBLE_MARGIN)
+        self.move(x, y)
+
+    def _resolve_rect(self) -> tuple[int, int, int, int] | None:
         try:
             rect = monitors.get_monitor_rect(self._config.capture_monitor_device)
         except Exception:
             rect = None
-        if rect is None:
-            return
-        left, top, width, height = rect
-        box_width = min(VISIBLE_WIDTH, max(320, width - (VISIBLE_MARGIN * 2)))
-        self.resize(box_width, VISIBLE_HEIGHT)
-        self._edit.setGeometry(0, 0, box_width, VISIBLE_HEIGHT)
-        x = left + ((width - box_width) // 2)
-        y = top + height - VISIBLE_HEIGHT - VISIBLE_MARGIN
-        self.move(x, y)
+        if rect is not None:
+            return rect
+
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return None
+        geometry = screen.availableGeometry()
+        return (
+            geometry.x(),
+            geometry.y(),
+            geometry.width(),
+            geometry.height(),
+        )
