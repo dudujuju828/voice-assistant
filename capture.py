@@ -28,10 +28,21 @@ def capture_monitor(device_name: Optional[str]) -> str:
         raise RuntimeError("No monitor available to capture.")
 
     left, top, width, height = rect
+    if width <= 0 or height <= 0:
+        raise RuntimeError(f"Invalid monitor bounds: {rect!r}")
     region = {"left": left, "top": top, "width": width, "height": height}
 
     path = screenshot_path()
-    with mss.mss() as sct:
-        shot = sct.grab(region)
-        mss.tools.to_png(shot.rgb, shot.size, output=path)
+    tmp_path = f"{path}.tmp"
+    try:
+        with mss.mss() as sct:
+            shot = sct.grab(region)
+            mss.tools.to_png(shot.rgb, shot.size, output=tmp_path)
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     return path
