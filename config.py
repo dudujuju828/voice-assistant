@@ -113,6 +113,12 @@ def _bounded_float(value: Any, default: float, minimum: float, maximum: float) -
     return max(minimum, min(parsed, maximum))
 
 
+def _non_empty_str(value: Any, default: str) -> str:
+    if not isinstance(value, str):
+        return default
+    return value.strip() or default
+
+
 class Config:
     """Thin wrapper over the JSON config file with dotted-key access."""
 
@@ -211,7 +217,7 @@ class Config:
 
     @property
     def voice_id(self) -> str:
-        return self.get("elevenlabs.voice_id", DEFAULT_VOICE_ID)
+        return _non_empty_str(self.get("elevenlabs.voice_id"), DEFAULT_VOICE_ID)
 
     @voice_id.setter
     def voice_id(self, value: str) -> None:
@@ -219,7 +225,7 @@ class Config:
 
     @property
     def tts_model(self) -> str:
-        return self.get("elevenlabs.model_id", DEFAULT_TTS_MODEL)
+        return _non_empty_str(self.get("elevenlabs.model_id"), DEFAULT_TTS_MODEL)
 
     @tts_model.setter
     def tts_model(self, value: str) -> None:
@@ -276,8 +282,7 @@ class Config:
 
     @property
     def claude_model(self) -> str:
-        model = self.get("claude.model", DEFAULT_CLAUDE_MODEL)
-        return (model or DEFAULT_CLAUDE_MODEL).strip()
+        return _non_empty_str(self.get("claude.model"), DEFAULT_CLAUDE_MODEL)
 
     @claude_model.setter
     def claude_model(self, value: str) -> None:
@@ -319,7 +324,12 @@ class Config:
 
     @property
     def session_id(self) -> str | None:
-        return self.get("claude.session_id")
+        value = self.get("claude.session_id")
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
 
     @session_id.setter
     def session_id(self, value: str | None) -> None:

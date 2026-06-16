@@ -9,7 +9,10 @@ from unittest.mock import patch
 
 from config import (
     DEFAULT_CAPTURE_DELAY_MS,
+    DEFAULT_CLAUDE_MODEL,
+    DEFAULT_TTS_MODEL,
     DEFAULT_TTS_STABILITY,
+    DEFAULT_VOICE_ID,
     MAX_CAPTURE_DELAY_MS,
     MAX_TTS_SPEED,
     MIN_TTS_SPEED,
@@ -106,6 +109,24 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.claude_model, "sonnet")
             self.assertEqual(config.claude_effort, "low")
             self.assertEqual(config.tts_speed, 1.1)
+
+    def test_string_settings_fall_back_on_wrong_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set_many(
+                {
+                    "elevenlabs.voice_id": 123,
+                    "elevenlabs.model_id": "",
+                    "claude.model": 456,
+                    "claude.session_id": 789,
+                }
+            )
+
+            self.assertEqual(config.voice_id, DEFAULT_VOICE_ID)
+            self.assertEqual(config.tts_model, DEFAULT_TTS_MODEL)
+            self.assertEqual(config.claude_model, DEFAULT_CLAUDE_MODEL)
+            self.assertIsNone(config.session_id)
 
     def test_legacy_default_hotkey_migrates_to_ctrl_win(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
