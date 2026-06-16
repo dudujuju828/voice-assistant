@@ -12,8 +12,6 @@ import subprocess
 from typing import Optional
 
 from config import Config
-
-TURN_TIMEOUT_SECONDS = 120
 SESSION_ERROR_PATTERNS = (
     "no conversation found",
     "conversation not found",
@@ -135,6 +133,7 @@ class ClaudeClient:
         if session_id:
             cmd += ["--resume", session_id]
 
+        timeout_seconds = self._config.claude_timeout_seconds
         try:
             proc = subprocess.run(
                 cmd,
@@ -142,11 +141,13 @@ class ClaudeClient:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=TURN_TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
                 shell=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise ClaudeError("Claude timed out.") from exc
+            raise ClaudeError(
+                f"Claude timed out after {timeout_seconds} seconds."
+            ) from exc
         except OSError as exc:
             raise ClaudeError(f"Failed to launch Claude: {exc}") from exc
 

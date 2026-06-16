@@ -54,9 +54,11 @@ class TTSTests(unittest.TestCase):
                 stability=0.2,
                 similarity_boost=0.9,
                 speed=1.1,
+                request_timeout=12,
             )
 
         body = post.call_args.kwargs["json"]
+        self.assertEqual(post.call_args.kwargs["timeout"], 12)
         self.assertEqual(body["model_id"], "eleven_multilingual_v2")
         self.assertEqual(
             body["voice_settings"],

@@ -29,6 +29,12 @@ CAPTURE_METHODS = {"clipboard", "hidden_input", "visible_input"}
 CLAUDE_EFFORT_LEVELS = {"default", "low", "medium", "high", "xhigh", "max"}
 DEFAULT_CAPTURE_DELAY_MS = 500
 MAX_CAPTURE_DELAY_MS = 10_000
+DEFAULT_CLAUDE_TIMEOUT_SECONDS = 120
+MIN_CLAUDE_TIMEOUT_SECONDS = 10
+MAX_CLAUDE_TIMEOUT_SECONDS = 600
+DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS = 30
+MIN_TTS_REQUEST_TIMEOUT_SECONDS = 5
+MAX_TTS_REQUEST_TIMEOUT_SECONDS = 180
 DEFAULT_TTS_STABILITY = 0.5
 DEFAULT_TTS_SIMILARITY_BOOST = 0.75
 DEFAULT_TTS_SPEED = 1.0
@@ -62,11 +68,13 @@ def _default_config() -> dict[str, Any]:
             "stability": DEFAULT_TTS_STABILITY,
             "similarity_boost": DEFAULT_TTS_SIMILARITY_BOOST,
             "speed": DEFAULT_TTS_SPEED,
+            "request_timeout_seconds": DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
         },
         "claude": {
             "session_id": None,
             "model": DEFAULT_CLAUDE_MODEL,
             "effort": DEFAULT_CLAUDE_EFFORT,
+            "timeout_seconds": DEFAULT_CLAUDE_TIMEOUT_SECONDS,
         },
     }
 
@@ -113,6 +121,14 @@ def _same_hotkey(mods: Any, vk: Any, expected_mods: list[str], expected_vk: str)
 def _bounded_float(value: Any, default: float, minimum: float, maximum: float) -> float:
     try:
         parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(parsed, maximum))
+
+
+def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
     except (TypeError, ValueError):
         return default
     return max(minimum, min(parsed, maximum))
@@ -292,6 +308,27 @@ class Config:
         )
 
     @property
+    def tts_request_timeout_seconds(self) -> int:
+        return _bounded_int(
+            self.get("elevenlabs.request_timeout_seconds"),
+            DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
+            MIN_TTS_REQUEST_TIMEOUT_SECONDS,
+            MAX_TTS_REQUEST_TIMEOUT_SECONDS,
+        )
+
+    @tts_request_timeout_seconds.setter
+    def tts_request_timeout_seconds(self, value: int) -> None:
+        self.set(
+            "elevenlabs.request_timeout_seconds",
+            _bounded_int(
+                value,
+                DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
+                MIN_TTS_REQUEST_TIMEOUT_SECONDS,
+                MAX_TTS_REQUEST_TIMEOUT_SECONDS,
+            ),
+        )
+
+    @property
     def claude_model(self) -> str:
         return _non_empty_str(self.get("claude.model"), DEFAULT_CLAUDE_MODEL)
 
@@ -311,6 +348,27 @@ class Config:
         if effort not in CLAUDE_EFFORT_LEVELS:
             raise ValueError(f"Unknown Claude effort level: {value!r}")
         self.set("claude.effort", effort)
+
+    @property
+    def claude_timeout_seconds(self) -> int:
+        return _bounded_int(
+            self.get("claude.timeout_seconds"),
+            DEFAULT_CLAUDE_TIMEOUT_SECONDS,
+            MIN_CLAUDE_TIMEOUT_SECONDS,
+            MAX_CLAUDE_TIMEOUT_SECONDS,
+        )
+
+    @claude_timeout_seconds.setter
+    def claude_timeout_seconds(self, value: int) -> None:
+        self.set(
+            "claude.timeout_seconds",
+            _bounded_int(
+                value,
+                DEFAULT_CLAUDE_TIMEOUT_SECONDS,
+                MIN_CLAUDE_TIMEOUT_SECONDS,
+                MAX_CLAUDE_TIMEOUT_SECONDS,
+            ),
+        )
 
     @property
     def capture_method(self) -> str:

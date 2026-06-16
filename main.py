@@ -84,6 +84,7 @@ class SpeakWorker(QThread):
         stability: float,
         similarity_boost: float,
         speed: float,
+        request_timeout: float,
     ) -> None:
         super().__init__()
         self._text = text
@@ -92,6 +93,7 @@ class SpeakWorker(QThread):
         self._stability = stability
         self._similarity_boost = similarity_boost
         self._speed = speed
+        self._request_timeout = request_timeout
 
     def run(self) -> None:
         try:
@@ -102,6 +104,7 @@ class SpeakWorker(QThread):
                 self._stability,
                 self._similarity_boost,
                 self._speed,
+                self._request_timeout,
             )
         except Exception as exc:  # defensive; tts.speak should degrade itself
             self.failed.emit(f"TTS error: {exc}")
@@ -269,6 +272,7 @@ class VoiceAssistant(QObject):
             self._config.tts_stability,
             self._config.tts_similarity_boost,
             self._config.tts_speed,
+            self._config.tts_request_timeout_seconds,
         )
         self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)

@@ -13,6 +13,7 @@ class FakeConfig:
         self.session_id = None
         self.claude_model = "opus"
         self.claude_effort = "default"
+        self.claude_timeout_seconds = 45
 
 
 class ClaudeClientParseTests(unittest.TestCase):
@@ -77,6 +78,7 @@ class ClaudeClientParseTests(unittest.TestCase):
 
         command = run.call_args.args[0]
         self.assertNotIn("--effort", command)
+        self.assertEqual(run.call_args.kwargs["timeout"], 45)
 
     def test_run_turn_includes_configured_effort(self) -> None:
         client = self._client()

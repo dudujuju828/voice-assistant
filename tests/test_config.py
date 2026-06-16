@@ -11,12 +11,18 @@ from unittest.mock import patch
 from config import (
     DEFAULT_CAPTURE_DELAY_MS,
     DEFAULT_CAPTURE_METHOD,
+    DEFAULT_CLAUDE_TIMEOUT_SECONDS,
     DEFAULT_CLAUDE_MODEL,
+    DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_STABILITY,
+    MAX_CLAUDE_TIMEOUT_SECONDS,
     DEFAULT_VOICE_ID,
     MAX_CAPTURE_DELAY_MS,
+    MAX_TTS_REQUEST_TIMEOUT_SECONDS,
     MAX_TTS_SPEED,
+    MIN_CLAUDE_TIMEOUT_SECONDS,
+    MIN_TTS_REQUEST_TIMEOUT_SECONDS,
     MIN_TTS_SPEED,
     Config,
 )
@@ -96,6 +102,40 @@ class ConfigTests(unittest.TestCase):
 
             config.set("elevenlabs.speed", -1)
             self.assertEqual(config.tts_speed, MIN_TTS_SPEED)
+
+    def test_external_timeouts_are_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set("claude.timeout_seconds", "bad")
+            self.assertEqual(
+                config.claude_timeout_seconds,
+                DEFAULT_CLAUDE_TIMEOUT_SECONDS,
+            )
+
+            config.set("claude.timeout_seconds", 1)
+            self.assertEqual(config.claude_timeout_seconds, MIN_CLAUDE_TIMEOUT_SECONDS)
+
+            config.set("claude.timeout_seconds", 9999)
+            self.assertEqual(config.claude_timeout_seconds, MAX_CLAUDE_TIMEOUT_SECONDS)
+
+            config.set("elevenlabs.request_timeout_seconds", "bad")
+            self.assertEqual(
+                config.tts_request_timeout_seconds,
+                DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
+            )
+
+            config.set("elevenlabs.request_timeout_seconds", 1)
+            self.assertEqual(
+                config.tts_request_timeout_seconds,
+                MIN_TTS_REQUEST_TIMEOUT_SECONDS,
+            )
+
+            config.set("elevenlabs.request_timeout_seconds", 9999)
+            self.assertEqual(
+                config.tts_request_timeout_seconds,
+                MAX_TTS_REQUEST_TIMEOUT_SECONDS,
+            )
 
     def test_claude_effort_is_validated(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

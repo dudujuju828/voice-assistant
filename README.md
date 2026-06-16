@@ -37,7 +37,7 @@ python main.py
 4. The only visible cue is a small dot in the bottom-right corner: red while
    recording, amber while thinking, green while speaking. It's gone when idle.
 5. Right-click the tray icon for **Settings** (capture monitor, capture method,
-   Claude model/effort, voice, and TTS quality),
+   Claude model/effort/timeout, voice, and TTS quality/timeout),
    **Reset Claude Session**, **Pause Hotkey**, or **Quit**.
 
 ### Capture methods
@@ -65,6 +65,7 @@ Diagnostics are written to `%APPDATA%\VoiceAssistant\voice-assistant.log`.
 
 Settings includes editable Claude and ElevenLabs model fields. Claude effort
 maps to the Claude Code CLI `--effort` option (`low`, `medium`, `high`,
-`xhigh`, `max`) and can be left at `default` to omit the flag. ElevenLabs
-stability, similarity, and speed are bounded before use so bad config values
-fall back to safe ranges.
+`xhigh`, `max`) and can be left at `default` to omit the flag. Claude and
+ElevenLabs timeouts are configurable and bounded. ElevenLabs stability,
+similarity, and speed are also bounded before use so bad config values fall
+back to safe ranges.

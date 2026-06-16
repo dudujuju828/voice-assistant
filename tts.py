@@ -39,6 +39,7 @@ def speak(
     stability: float = 0.5,
     similarity_boost: float = 0.75,
     speed: float = 1.0,
+    request_timeout: float = REQUEST_TIMEOUT,
 ) -> None:
     """Synthesize ``text`` and play it back, blocking until playback ends.
 
@@ -78,7 +79,11 @@ def speak(
 
     try:
         with requests.post(
-            url, headers=headers, json=body, stream=True, timeout=REQUEST_TIMEOUT
+            url,
+            headers=headers,
+            json=body,
+            stream=True,
+            timeout=request_timeout,
         ) as resp:
             if resp.status_code != 200:
                 detail = resp.text[:200] if resp.content else ""

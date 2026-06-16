@@ -17,6 +17,12 @@ from PySide6.QtWidgets import (
 )
 
 import monitors
+from config import (
+    MAX_CLAUDE_TIMEOUT_SECONDS,
+    MAX_TTS_REQUEST_TIMEOUT_SECONDS,
+    MIN_CLAUDE_TIMEOUT_SECONDS,
+    MIN_TTS_REQUEST_TIMEOUT_SECONDS,
+)
 
 load_dotenv()
 
@@ -177,6 +183,16 @@ class SettingsDialog(QDialog):
         _set_combo_value(self._claude_effort_combo, config.claude_effort)
         form.addRow("Claude effort:", self._claude_effort_combo)
 
+        self._claude_timeout_input = QSpinBox(self)
+        self._claude_timeout_input.setRange(
+            MIN_CLAUDE_TIMEOUT_SECONDS,
+            MAX_CLAUDE_TIMEOUT_SECONDS,
+        )
+        self._claude_timeout_input.setSingleStep(10)
+        self._claude_timeout_input.setSuffix(" s")
+        self._claude_timeout_input.setValue(config.claude_timeout_seconds)
+        form.addRow("Claude timeout:", self._claude_timeout_input)
+
         # --- voice dropdown ---
         self._voice_combo = QComboBox(self)
         current_voice = config.voice_id
@@ -199,6 +215,16 @@ class SettingsDialog(QDialog):
             self._tts_model_combo.addItem(label, model)
         _set_combo_value(self._tts_model_combo, config.tts_model)
         form.addRow("TTS model:", self._tts_model_combo)
+
+        self._tts_timeout_input = QSpinBox(self)
+        self._tts_timeout_input.setRange(
+            MIN_TTS_REQUEST_TIMEOUT_SECONDS,
+            MAX_TTS_REQUEST_TIMEOUT_SECONDS,
+        )
+        self._tts_timeout_input.setSingleStep(5)
+        self._tts_timeout_input.setSuffix(" s")
+        self._tts_timeout_input.setValue(config.tts_request_timeout_seconds)
+        form.addRow("TTS timeout:", self._tts_timeout_input)
 
         self._stability_input = _number_input(config.tts_stability, 0.0, 1.0, 0.05)
         form.addRow("Voice stability:", self._stability_input)
@@ -242,9 +268,13 @@ class SettingsDialog(QDialog):
         claude_effort = self._claude_effort_combo.currentData()
         if claude_effort:
             updates["claude.effort"] = claude_effort
+        updates["claude.timeout_seconds"] = self._claude_timeout_input.value()
         tts_model = _combo_value(self._tts_model_combo)
         if tts_model:
             updates["elevenlabs.model_id"] = tts_model
+        updates["elevenlabs.request_timeout_seconds"] = (
+            self._tts_timeout_input.value()
+        )
         updates["elevenlabs.stability"] = self._stability_input.value()
         updates["elevenlabs.similarity_boost"] = self._similarity_input.value()
         updates["elevenlabs.speed"] = self._speed_input.value()
