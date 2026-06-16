@@ -68,6 +68,7 @@ class SpeakWorker(QThread):
     """Streams ElevenLabs TTS playback off the UI thread."""
 
     finished_speaking = Signal()
+    failed = Signal(str)
 
     def __init__(self, text: str, voice_id: str, model_id: str) -> None:
         super().__init__()
@@ -76,8 +77,12 @@ class SpeakWorker(QThread):
         self._model_id = model_id
 
     def run(self) -> None:
-        tts.speak(self._text, self._voice_id, self._model_id)
-        self.finished_speaking.emit()
+        try:
+            tts.speak(self._text, self._voice_id, self._model_id)
+        except Exception as exc:  # defensive; tts.speak should degrade itself
+            self.failed.emit(f"TTS error: {exc}")
+        finally:
+            self.finished_speaking.emit()
 
 
 class VoiceAssistant(QObject):
@@ -89,6 +94,7 @@ class VoiceAssistant(QObject):
 
         self._busy = False
         self._recording = False
+        self._active_capture_method: str | None = None
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
         self._clipboard_text_before_capture: str | None = None
@@ -142,10 +148,11 @@ class VoiceAssistant(QObject):
             )
             return
         self._recording = True
+        self._active_capture_method = self._config.capture_method
         self._overlay.show_recording()
-        if self._config.capture_method == "hidden_input":
+        if self._active_capture_method == "hidden_input":
             self._hidden.focus_for_capture()
-        elif self._config.capture_method == "visible_input":
+        elif self._active_capture_method == "visible_input":
             self._visible_input.focus_for_capture()
         else:
             self._begin_clipboard_capture()
@@ -175,10 +182,16 @@ class VoiceAssistant(QObject):
 
     def _read_transcript(self) -> str:
         """Read the transcribed text from the configured capture source."""
-        if self._config.capture_method == "hidden_input":
+        method = self._active_capture_method or self._config.capture_method
+        self._active_capture_method = None
+        if method == "hidden_input":
             return self._hidden.read_and_clear()
-        if self._config.capture_method == "visible_input":
+        if method == "visible_input":
             return self._visible_input.read_and_clear()
+        return self._read_clipboard_transcript()
+
+    def _read_clipboard_transcript(self) -> str:
+        """Read clipboard text only if Wispr published fresh content."""
         clipboard = self._app.clipboard()
         text = clipboard.text().strip() if clipboard else ""
         changed = self._clipboard_changed_during_capture
@@ -212,12 +225,16 @@ class VoiceAssistant(QObject):
         self._speak_worker = SpeakWorker(
             reply, self._config.voice_id, self._config.tts_model
         )
+        self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)
         self._speak_worker.start()
 
     def _on_speech_done(self) -> None:
         self._overlay.hide()
         self._busy = False
+
+    def _on_speech_failed(self, message: str) -> None:
+        self._tray.notify("Voice Assistant", message)
 
     def _on_ask_failed(self, message: str) -> None:
         self._tray.notify("Voice Assistant", message)
