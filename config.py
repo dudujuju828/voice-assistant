@@ -6,10 +6,13 @@ ElevenLabs API key) live in .env, never here.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # --- defaults ---------------------------------------------------------------
@@ -141,7 +144,7 @@ class Config:
         except OSError as exc:
             # If the config cannot be read due to permissions/locking, run with
             # defaults in memory and avoid overwriting a file we could not read.
-            print(f"[config] Could not read {path}: {exc}")
+            logger.warning("Could not read config at %s: %s", path, exc)
             self._data = _default_config()
 
     def save(self) -> None:

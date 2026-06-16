@@ -8,6 +8,7 @@ ElevenLabs streaming TTS. A tiny corner dot is the only visible footprint.
 from __future__ import annotations
 
 import ctypes
+import logging
 import sys
 
 # DPI awareness MUST be set before QApplication so mss bounds == physical px.
@@ -20,6 +21,7 @@ if sys.platform == "win32":
 from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon  # noqa: E402
 
+import app_logging  # noqa: E402
 import capture  # noqa: E402
 import runtime_checks  # noqa: E402
 import tts  # noqa: E402
@@ -34,6 +36,8 @@ from hotkey import HotkeyManager  # noqa: E402
 from ui.settings import SettingsDialog  # noqa: E402
 from ui.status_overlay import StatusOverlay  # noqa: E402
 from ui.tray import Tray  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 class AskWorker(QThread):
@@ -127,6 +131,7 @@ class VoiceAssistant(QObject):
         self._tray = Tray()
         self._tray.show()
         if runtime_checks.is_running_elevated():
+            logger.warning("Application is running elevated; Wispr input may fail.")
             self._tray.notify(
                 "Voice Assistant is elevated",
                 "Run normally so Wispr can type into the capture input.",
@@ -272,9 +277,11 @@ class VoiceAssistant(QObject):
         self._busy = False
 
     def _on_speech_failed(self, message: str) -> None:
+        logger.warning(message)
         self._tray.notify("Voice Assistant", message)
 
     def _on_ask_failed(self, message: str) -> None:
+        logger.warning(message)
         self._tray.notify("Voice Assistant", message)
         self._overlay.show_error()
         QTimer.singleShot(2500, self._overlay.hide)
@@ -300,6 +307,7 @@ class VoiceAssistant(QObject):
 
 
 def main() -> int:
+    app_logging.setup_logging()
     if sys.platform != "win32":
         # The app depends on Win32 APIs; warn but allow import-level testing.
         print("Voice Assistant targets Windows; some features will not work here.")

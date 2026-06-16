@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import threading
+import logging
 from typing import Optional
 
 import requests
@@ -19,6 +20,8 @@ except Exception:  # pragma: no cover - audio backend may be missing in CI
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 SAMPLE_RATE = 24000
 CHANNELS = 1
@@ -49,10 +52,10 @@ def speak(
 
     key = _api_key()
     if not key:
-        print("[tts] ELEVENLABS_API_KEY not set; skipping speech.")
+        logger.warning("ELEVENLABS_API_KEY not set; skipping speech.")
         return
     if sd is None:
-        print("[tts] sounddevice unavailable; skipping speech.")
+        logger.warning("sounddevice unavailable; skipping speech.")
         return
 
     url = (
@@ -80,13 +83,13 @@ def speak(
         ) as resp:
             if resp.status_code != 200:
                 detail = resp.text[:200] if resp.content else ""
-                print(f"[tts] ElevenLabs error {resp.status_code}: {detail}")
+                logger.warning("ElevenLabs error %s: %s", resp.status_code, detail)
                 return
             _play_stream(resp)
     except requests.RequestException as exc:
-        print(f"[tts] request failed: {exc}")
+        logger.warning("ElevenLabs request failed: %s", exc)
     except Exception as exc:  # pragma: no cover - defensive
-        print(f"[tts] playback failed: {exc}")
+        logger.exception("TTS playback failed: %s", exc)
 
 
 def _play_stream(resp: "requests.Response") -> None:

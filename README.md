@@ -61,6 +61,7 @@ Config is stored at `%APPDATA%\VoiceAssistant\config.json`; the Claude session
 id persists there so conversations carry across questions and restarts. The
 spoken-reply behaviour (short, plain, no markdown) is set by `SYSTEM_PROMPT` in
 `claude_client.py`.
+Diagnostics are written to `%APPDATA%\VoiceAssistant\voice-assistant.log`.
 
 ### Model and voice settings
 
