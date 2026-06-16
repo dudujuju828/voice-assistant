@@ -32,10 +32,12 @@ def setup_logging() -> None:
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     )
     root = logging.getLogger()
-    if not any(
+    if any(
         isinstance(existing, RotatingFileHandler)
         and getattr(existing, "baseFilename", None) == handler.baseFilename
         for existing in root.handlers
     ):
+        handler.close()
+    else:
         root.addHandler(handler)
     root.setLevel(logging.INFO)
