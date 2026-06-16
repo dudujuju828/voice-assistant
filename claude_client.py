@@ -117,6 +117,8 @@ class ClaudeClient:
             "--append-system-prompt",
             SYSTEM_PROMPT,
         ]
+        if self._config.claude_effort != "default":
+            cmd += ["--effort", self._config.claude_effort]
         if add_dir:
             cmd += ["--add-dir", add_dir]
         if session_id:

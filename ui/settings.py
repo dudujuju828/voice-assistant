@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QFormLayout,
     QLabel,
     QLineEdit,
@@ -21,6 +22,28 @@ _FALLBACK_VOICES = [
     ("Adam", "pNInz6obpgDQGcFmaJgB"),
     ("Antoni", "ErXwobaYiN019PkySvjV"),
     ("Bella", "EXAVITQu4vr4xnSDxMaL"),
+]
+
+_CLAUDE_MODELS = [
+    ("Opus", "opus"),
+    ("Sonnet", "sonnet"),
+    ("Fable", "fable"),
+]
+
+_CLAUDE_EFFORTS = [
+    ("Default", "default"),
+    ("Low", "low"),
+    ("Medium", "medium"),
+    ("High", "high"),
+    ("Extra high", "xhigh"),
+    ("Maximum", "max"),
+]
+
+_TTS_MODELS = [
+    ("Flash v2.5", "eleven_flash_v2_5"),
+    ("Turbo v2.5", "eleven_turbo_v2_5"),
+    ("Multilingual v2", "eleven_multilingual_v2"),
+    ("Eleven v3", "eleven_v3"),
 ]
 
 
@@ -44,6 +67,37 @@ def _fetch_voices() -> list[tuple[str, str]]:
         return parsed or _FALLBACK_VOICES
     except (requests.RequestException, ValueError, KeyError):
         return _FALLBACK_VOICES
+
+
+def _set_combo_value(combo: QComboBox, value: str) -> None:
+    for index in range(combo.count()):
+        if combo.itemData(index) == value:
+            combo.setCurrentIndex(index)
+            return
+    if combo.isEditable():
+        combo.setCurrentText(value)
+
+
+def _combo_value(combo: QComboBox) -> str:
+    data = combo.currentData()
+    if data:
+        return str(data)
+    return combo.currentText().strip()
+
+
+def _number_input(
+    value: float,
+    minimum: float,
+    maximum: float,
+    step: float,
+    decimals: int = 2,
+) -> QDoubleSpinBox:
+    field = QDoubleSpinBox()
+    field.setRange(minimum, maximum)
+    field.setSingleStep(step)
+    field.setDecimals(decimals)
+    field.setValue(value)
+    return field
 
 
 class SettingsDialog(QDialog):
@@ -94,6 +148,20 @@ class SettingsDialog(QDialog):
         hotkey_field.setReadOnly(True)
         form.addRow("Hotkey:", hotkey_field)
 
+        # --- Claude controls ---
+        self._claude_model_combo = QComboBox(self)
+        self._claude_model_combo.setEditable(True)
+        for label, model in _CLAUDE_MODELS:
+            self._claude_model_combo.addItem(label, model)
+        _set_combo_value(self._claude_model_combo, config.claude_model)
+        form.addRow("Claude model:", self._claude_model_combo)
+
+        self._claude_effort_combo = QComboBox(self)
+        for label, effort in _CLAUDE_EFFORTS:
+            self._claude_effort_combo.addItem(label, effort)
+        _set_combo_value(self._claude_effort_combo, config.claude_effort)
+        form.addRow("Claude effort:", self._claude_effort_combo)
+
         # --- voice dropdown ---
         self._voice_combo = QComboBox(self)
         current_voice = config.voice_id
@@ -104,6 +172,24 @@ class SettingsDialog(QDialog):
                 selected_index = index
         self._voice_combo.setCurrentIndex(selected_index)
         form.addRow("ElevenLabs voice:", self._voice_combo)
+
+        self._tts_model_combo = QComboBox(self)
+        self._tts_model_combo.setEditable(True)
+        for label, model in _TTS_MODELS:
+            self._tts_model_combo.addItem(label, model)
+        _set_combo_value(self._tts_model_combo, config.tts_model)
+        form.addRow("TTS model:", self._tts_model_combo)
+
+        self._stability_input = _number_input(config.tts_stability, 0.0, 1.0, 0.05)
+        form.addRow("Voice stability:", self._stability_input)
+
+        self._similarity_input = _number_input(
+            config.tts_similarity_boost, 0.0, 1.0, 0.05
+        )
+        form.addRow("Voice similarity:", self._similarity_input)
+
+        self._speed_input = _number_input(config.tts_speed, 0.7, 1.2, 0.05)
+        form.addRow("Voice speed:", self._speed_input)
 
         # --- info ---
         info = QLabel("Settings are saved to %APPDATA%\\VoiceAssistant.", self)
@@ -128,4 +214,16 @@ class SettingsDialog(QDialog):
         capture_method = self._capture_method_combo.currentData()
         if capture_method:
             self._config.capture_method = capture_method
+        claude_model = _combo_value(self._claude_model_combo)
+        if claude_model:
+            self._config.claude_model = claude_model
+        claude_effort = self._claude_effort_combo.currentData()
+        if claude_effort:
+            self._config.claude_effort = claude_effort
+        tts_model = _combo_value(self._tts_model_combo)
+        if tts_model:
+            self._config.tts_model = tts_model
+        self._config.tts_stability = self._stability_input.value()
+        self._config.tts_similarity_boost = self._similarity_input.value()
+        self._config.tts_speed = self._speed_input.value()
         self.accept()

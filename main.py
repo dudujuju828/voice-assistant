@@ -70,15 +70,33 @@ class SpeakWorker(QThread):
     finished_speaking = Signal()
     failed = Signal(str)
 
-    def __init__(self, text: str, voice_id: str, model_id: str) -> None:
+    def __init__(
+        self,
+        text: str,
+        voice_id: str,
+        model_id: str,
+        stability: float,
+        similarity_boost: float,
+        speed: float,
+    ) -> None:
         super().__init__()
         self._text = text
         self._voice_id = voice_id
         self._model_id = model_id
+        self._stability = stability
+        self._similarity_boost = similarity_boost
+        self._speed = speed
 
     def run(self) -> None:
         try:
-            tts.speak(self._text, self._voice_id, self._model_id)
+            tts.speak(
+                self._text,
+                self._voice_id,
+                self._model_id,
+                self._stability,
+                self._similarity_boost,
+                self._speed,
+            )
         except Exception as exc:  # defensive; tts.speak should degrade itself
             self.failed.emit(f"TTS error: {exc}")
         finally:
@@ -232,7 +250,12 @@ class VoiceAssistant(QObject):
     def _on_reply(self, reply: str) -> None:
         self._overlay.show_speaking()
         self._speak_worker = SpeakWorker(
-            reply, self._config.voice_id, self._config.tts_model
+            reply,
+            self._config.voice_id,
+            self._config.tts_model,
+            self._config.tts_stability,
+            self._config.tts_similarity_boost,
+            self._config.tts_speed,
         )
         self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)

@@ -106,7 +106,11 @@ Relevant calls: `SetForegroundWindow`, `SetWindowLong`/`GetWindowLong` with `GWL
   {
     "text": "...Claude's reply...",
     "model_id": "eleven_flash_v2_5",
-    "voice_settings": { "stability": 0.5, "similarity_boost": 0.75 }
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75,
+      "speed": 1.0
+    }
   }
   ```
 - `model_id`: `eleven_flash_v2_5` for lowest latency (~75ms); `eleven_turbo_v2_5` for quality/latency balance.
@@ -121,6 +125,7 @@ Confirmed pattern — spawn one process per turn, do **not** hold an interactive
 claude -p "<prompt>" \
   --resume <session-id> \
   --model opus \
+  --effort high \
   --output-format json \
   --add-dir <screenshot-dir>
 ```
@@ -130,6 +135,7 @@ claude -p "<prompt>" \
 | `-p, --print` | Non-interactive: run one turn, print result, exit. |
 | `--resume <id>` | Continue the persistent session (carries conversation memory). |
 | `--model opus` | Use Opus (`claude-opus-4-8`). |
+| `--effort high` | Optional thinking/effort level (`low`, `medium`, `high`, `xhigh`, `max`). Omitted when config is `default`. |
 | `--output-format json` | Machine-parseable result (`{"result": "...", "session_id": "..."}`). Use `stream-json` if you want token-by-token to start TTS earlier. |
 | `--add-dir <dir>` | Grant read access to the screenshot folder so Claude can open the image. |
 
@@ -152,8 +158,14 @@ claude -p "<prompt>" \
 {
   "capture_monitor_device": "\\\\.\\DISPLAY2",
   "hotkey": { "mods": ["ctrl"], "vk": "Win" },
-  "elevenlabs": { "voice_id": "...", "model_id": "eleven_flash_v2_5" },
-  "claude": { "session_id": null, "model": "opus" }
+  "elevenlabs": {
+    "voice_id": "...",
+    "model_id": "eleven_flash_v2_5",
+    "stability": 0.5,
+    "similarity_boost": 0.75,
+    "speed": 1.0
+  },
+  "claude": { "session_id": null, "model": "opus", "effort": "default" }
 }
 ```
 - Store monitor by **`Device` name**, not index/rect — indices reshuffle when displays are plugged/unplugged; re-resolve bounds at runtime via `EnumDisplayMonitors`. If the saved device is gone, fall back to primary and re-prompt in settings.

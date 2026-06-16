@@ -7,7 +7,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from config import DEFAULT_CAPTURE_DELAY_MS, MAX_CAPTURE_DELAY_MS, Config
+from config import (
+    DEFAULT_CAPTURE_DELAY_MS,
+    DEFAULT_TTS_STABILITY,
+    MAX_CAPTURE_DELAY_MS,
+    MAX_TTS_SPEED,
+    MIN_TTS_SPEED,
+    Config,
+)
 
 
 class ConfigTests(unittest.TestCase):
@@ -54,6 +61,35 @@ class ConfigTests(unittest.TestCase):
 
             config.set("capture.delay_ms", -1)
             self.assertEqual(config.capture_delay_ms, 0)
+
+    def test_tts_settings_are_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set("elevenlabs.stability", "bad")
+            self.assertEqual(config.tts_stability, DEFAULT_TTS_STABILITY)
+
+            config.set("elevenlabs.similarity_boost", 2)
+            self.assertEqual(config.tts_similarity_boost, 1.0)
+
+            config.set("elevenlabs.speed", 99)
+            self.assertEqual(config.tts_speed, MAX_TTS_SPEED)
+
+            config.set("elevenlabs.speed", -1)
+            self.assertEqual(config.tts_speed, MIN_TTS_SPEED)
+
+    def test_claude_effort_is_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.claude_effort = "high"
+            self.assertEqual(config.claude_effort, "high")
+
+            config.set("claude.effort", "not-real")
+            self.assertEqual(config.claude_effort, "default")
+
+            with self.assertRaises(ValueError):
+                config.claude_effort = "not-real"
 
     def test_legacy_default_hotkey_migrates_to_ctrl_win(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

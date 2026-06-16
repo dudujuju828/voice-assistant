@@ -30,7 +30,14 @@ def _api_key() -> Optional[str]:
     return os.getenv("ELEVENLABS_API_KEY")
 
 
-def speak(text: str, voice_id: str, model_id: str = "eleven_flash_v2_5") -> None:
+def speak(
+    text: str,
+    voice_id: str,
+    model_id: str = "eleven_flash_v2_5",
+    stability: float = 0.5,
+    similarity_boost: float = 0.75,
+    speed: float = 1.0,
+) -> None:
     """Synthesize ``text`` and play it back, blocking until playback ends.
 
     Failures are swallowed (logged) so a TTS outage degrades to silence rather
@@ -60,7 +67,11 @@ def speak(text: str, voice_id: str, model_id: str = "eleven_flash_v2_5") -> None
     body = {
         "text": text,
         "model_id": model_id,
-        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
+        "voice_settings": {
+            "stability": stability,
+            "similarity_boost": similarity_boost,
+            "speed": speed,
+        },
     }
 
     try:
@@ -108,17 +119,30 @@ class SpeakWorker(threading.Thread):
         text: str,
         voice_id: str,
         model_id: str = "eleven_flash_v2_5",
+        stability: float = 0.5,
+        similarity_boost: float = 0.75,
+        speed: float = 1.0,
         on_done=None,
     ) -> None:
         super().__init__(daemon=True)
         self._text = text
         self._voice_id = voice_id
         self._model_id = model_id
+        self._stability = stability
+        self._similarity_boost = similarity_boost
+        self._speed = speed
         self._on_done = on_done
 
     def run(self) -> None:
         try:
-            speak(self._text, self._voice_id, self._model_id)
+            speak(
+                self._text,
+                self._voice_id,
+                self._model_id,
+                self._stability,
+                self._similarity_boost,
+                self._speed,
+            )
         finally:
             if self._on_done:
                 self._on_done()

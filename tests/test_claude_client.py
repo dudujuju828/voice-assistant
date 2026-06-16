@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from claude_client import ClaudeClient, ClaudeError
 
@@ -9,6 +11,8 @@ from claude_client import ClaudeClient, ClaudeError
 class FakeConfig:
     def __init__(self) -> None:
         self.session_id = None
+        self.claude_model = "opus"
+        self.claude_effort = "default"
 
 
 class ClaudeClientParseTests(unittest.TestCase):
@@ -58,6 +62,39 @@ class ClaudeClientParseTests(unittest.TestCase):
 
         with self.assertRaises(ClaudeError):
             client._parse_result(json.dumps(["not", "an", "object"]))
+
+    def test_run_turn_omits_default_effort(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        completed = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps({"result": "ok", "session_id": "session-789"}),
+        )
+
+        with patch("claude_client.subprocess.run", return_value=completed) as run:
+            client._run_turn("prompt", None, None)
+
+        command = run.call_args.args[0]
+        self.assertNotIn("--effort", command)
+
+    def test_run_turn_includes_configured_effort(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        client._config.claude_effort = "high"
+        completed = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps({"result": "ok", "session_id": "session-789"}),
+        )
+
+        with patch("claude_client.subprocess.run", return_value=completed) as run:
+            client._run_turn("prompt", None, None)
+
+        command = run.call_args.args[0]
+        self.assertIn("--effort", command)
+        effort_index = command.index("--effort")
+        self.assertEqual(command[effort_index + 1], "high")
 
 
 if __name__ == "__main__":
