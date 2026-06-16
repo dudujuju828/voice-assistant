@@ -29,11 +29,11 @@ python main.py
 ## Usage
 
 1. The app runs in the system tray with no window.
-2. Bind Wispr Flow to **Ctrl+Shift+Space** (the same hotkey the app listens for).
+2. Bind Wispr Flow to **Ctrl+Win** (the same hotkey the app listens for).
    Set Wispr to copy its transcription to the clipboard (the default capture
    method) or to type it into the focused app (choose `Hidden input` in
    Settings).
-3. **Hold Ctrl+Shift+Space**, speak your question, then **release**. Wispr stops
+3. **Hold Ctrl+Win**, speak your question, then **release**. Wispr stops
    and hands over the text; the app takes it from there silently.
 4. The only visible cue is a small dot in the bottom-right corner: red while
    recording, amber while thinking, green while speaking. It's gone when idle.

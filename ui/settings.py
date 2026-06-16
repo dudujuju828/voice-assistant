@@ -85,8 +85,8 @@ class SettingsDialog(QDialog):
         form.addRow("Transcript capture:", self._capture_method_combo)
 
         # --- hotkey (read-only for now) ---
-        mods = config.get("hotkey.mods", ["ctrl", "shift"])
-        vk = config.get("hotkey.vk", "Space")
+        mods = config.get("hotkey.mods", ["ctrl"])
+        vk = config.get("hotkey.vk", "Win")
         hotkey_text = (
             " + ".join([m.capitalize() for m in mods] + [vk]) + "  (hold to talk)"
         )

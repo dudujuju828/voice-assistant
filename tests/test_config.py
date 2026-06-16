@@ -55,6 +55,24 @@ class ConfigTests(unittest.TestCase):
             config.set("capture.delay_ms", -1)
             self.assertEqual(config.capture_delay_ms, 0)
 
+    def test_legacy_default_hotkey_migrates_to_ctrl_win(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "VoiceAssistant"
+            config_dir.mkdir()
+            path = config_dir / "config.json"
+            path.write_text(
+                json.dumps({"hotkey": {"mods": ["ctrl", "shift"], "vk": "Space"}}),
+                encoding="utf-8",
+            )
+
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.get("hotkey.mods"), ["ctrl"])
+            self.assertEqual(config.get("hotkey.vk"), "Win")
+            persisted = json.loads(path.read_text())
+            self.assertEqual(persisted["hotkey"]["mods"], ["ctrl"])
+            self.assertEqual(persisted["hotkey"]["vk"], "Win")
+
 
 if __name__ == "__main__":
     unittest.main()

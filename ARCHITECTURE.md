@@ -39,7 +39,7 @@ We need both key *down* and key *up*, so `RegisterHotKey` (down-only,
   callback runs on the installing thread, which must pump Win32 messages (Qt's
   event loop does this). `hMod` = `GetModuleHandleW(None)`.
 - The callback receives `WM_KEYDOWN/KEYUP/SYSKEYDOWN/SYSKEYUP` with a
-  `KBDLLHOOKSTRUCT` (we read `vkCode`). When the trigger key (Space) goes down
+  `KBDLLHOOKSTRUCT` (we read `vkCode`). When the trigger key (Win) goes down
   *and* the modifiers are held (checked with `GetAsyncKeyState`), we emit
   `pressed`; when the trigger key goes up we emit `released`. Auto-repeat is
   ignored via an "already active" flag.
@@ -151,7 +151,7 @@ claude -p "<prompt>" \
 ```json
 {
   "capture_monitor_device": "\\\\.\\DISPLAY2",
-  "hotkey": { "mods": ["ctrl", "alt"], "vk": "Space" },
+  "hotkey": { "mods": ["ctrl"], "vk": "Win" },
   "elevenlabs": { "voice_id": "...", "model_id": "eleven_flash_v2_5" },
   "claude": { "session_id": null, "model": "opus" }
 }

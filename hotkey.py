@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ctypes
 from ctypes import wintypes
+from typing import TypeAlias
 
 from PySide6.QtCore import QObject, Signal
 
@@ -32,43 +33,58 @@ VK_CONTROL = 0x11
 VK_MENU = 0x12  # Alt
 VK_LWIN = 0x5B
 VK_RWIN = 0x5C
+VK_LCONTROL = 0xA2
+VK_RCONTROL = 0xA3
+VK_LSHIFT = 0xA0
+VK_RSHIFT = 0xA1
+VK_LMENU = 0xA4
+VK_RMENU = 0xA5
 
-_MOD_VKS = {
-    "alt": (VK_MENU,),
-    "ctrl": (VK_CONTROL,),
-    "control": (VK_CONTROL,),
-    "shift": (VK_SHIFT,),
+VkGroup: TypeAlias = int | tuple[int, ...]
+
+_MOD_VKS: dict[str, tuple[int, ...]] = {
+    "alt": (VK_MENU, VK_LMENU, VK_RMENU),
+    "ctrl": (VK_CONTROL, VK_LCONTROL, VK_RCONTROL),
+    "control": (VK_CONTROL, VK_LCONTROL, VK_RCONTROL),
+    "shift": (VK_SHIFT, VK_LSHIFT, VK_RSHIFT),
     "win": (VK_LWIN, VK_RWIN),
+    "windows": (VK_LWIN, VK_RWIN),
 }
 
 # Friendly key name -> virtual-key code for the trigger key. Extend as needed.
-_VK_MAP = {
+_VK_MAP: dict[str, VkGroup] = {
     "space": 0x20,
     "enter": 0x0D,
     "return": 0x0D,
     "tab": 0x09,
     "escape": 0x1B,
     "esc": 0x1B,
+    "win": (VK_LWIN, VK_RWIN),
+    "windows": (VK_LWIN, VK_RWIN),
 }
 
 
-def _resolve_vk(vk: str) -> int:
+def _as_vk_tuple(vks: int | tuple[int, ...]) -> tuple[int, ...]:
+    return vks if isinstance(vks, tuple) else (vks,)
+
+
+def _resolve_trigger_vks(vk: str) -> tuple[int, ...]:
     key = (vk or "").strip()
     lowered = key.lower()
     if lowered in _VK_MAP:
-        return _VK_MAP[lowered]
+        return _as_vk_tuple(_VK_MAP[lowered])
     if len(key) == 1:
-        return ord(key.upper())
+        return (ord(key.upper()),)
     raise ValueError(f"Unknown hotkey virtual key: {vk!r}")
 
 
-def _resolve_mod_vks(mods: list[str]) -> list[int]:
-    out: list[int] = []
+def _resolve_mod_vks(mods: list[str]) -> list[tuple[int, ...]]:
+    out: list[tuple[int, ...]] = []
     for mod in mods:
         vks = _MOD_VKS.get(mod.lower())
         if vks is None:
             raise ValueError(f"Unknown hotkey modifier: {mod!r}")
-        out.append(vks[0] if len(vks) == 1 else vks)  # type: ignore[arg-type]
+        out.append(vks)
     return out
 
 
@@ -103,7 +119,7 @@ class HotkeyManager(QObject):
         # Flatten modifier vk groups; each entry is an int or a tuple of ints
         # where any one being down satisfies that modifier (e.g. left/right Win).
         self._mod_vks = _resolve_mod_vks(mods)
-        self._trigger_vk = _resolve_vk(vk)
+        self._trigger_vks = _resolve_trigger_vks(vk)
 
         self._active = False   # combo currently held down
         self._paused = False
@@ -176,7 +192,7 @@ class HotkeyManager(QObject):
     def _on_event(self, n_code: int, w_param: int, l_param: int) -> int:
         if n_code == 0 and not self._paused:
             data = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-            if data.vkCode == self._trigger_vk:
+            if data.vkCode in self._trigger_vks:
                 if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
                     # Trigger went down; start only if modifiers are held and we
                     # aren't already active (ignores auto-repeat).

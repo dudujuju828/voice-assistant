@@ -17,9 +17,14 @@ from typing import Any
 DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"
 DEFAULT_CLAUDE_MODEL = "opus"
+DEFAULT_HOTKEY_MODS = ["ctrl"]
+DEFAULT_HOTKEY_VK = "Win"
 CAPTURE_METHODS = {"clipboard", "hidden_input", "visible_input"}
 DEFAULT_CAPTURE_DELAY_MS = 500
 MAX_CAPTURE_DELAY_MS = 10_000
+LEGACY_DEFAULT_HOTKEYS = [
+    (["ctrl", "shift"], "Space"),
+]
 
 
 def _default_config() -> dict[str, Any]:
@@ -27,8 +32,8 @@ def _default_config() -> dict[str, Any]:
         # Resolved lazily on first run to the primary monitor device name.
         "capture_monitor_device": None,
         "hotkey": {
-            "mods": ["ctrl", "shift"],
-            "vk": "Space",
+            "mods": list(DEFAULT_HOTKEY_MODS),
+            "vk": DEFAULT_HOTKEY_VK,
             "semantics": "push_to_talk",
         },
         # How the transcribed text reaches the app after the hotkey is released.
@@ -76,6 +81,13 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return out
 
 
+def _same_hotkey(mods: Any, vk: Any, expected_mods: list[str], expected_vk: str) -> bool:
+    if not isinstance(mods, list) or not isinstance(vk, str):
+        return False
+    normalized_mods = [str(mod).lower() for mod in mods]
+    return normalized_mods == expected_mods and vk.lower() == expected_vk.lower()
+
+
 class Config:
     """Thin wrapper over the JSON config file with dotted-key access."""
 
@@ -93,6 +105,8 @@ class Config:
             if not isinstance(stored, dict):
                 raise ValueError("Config root must be an object.")
             self._data = _deep_merge(_default_config(), stored)
+            if self._migrate():
+                self.save()
         except FileNotFoundError:
             # First run: start from defaults and persist them.
             self._data = _default_config()
@@ -116,6 +130,19 @@ class Config:
             json.dump(self._data, fh, indent=2)
             fh.write("\n")
         os.replace(tmp, path)
+
+    def _migrate(self) -> bool:
+        """Apply safe config migrations for historical defaults."""
+        mods = self.get("hotkey.mods")
+        vk = self.get("hotkey.vk")
+        for legacy_mods, legacy_vk in LEGACY_DEFAULT_HOTKEYS:
+            if _same_hotkey(mods, vk, legacy_mods, legacy_vk):
+                hotkey = self._data.setdefault("hotkey", {})
+                if isinstance(hotkey, dict):
+                    hotkey["mods"] = list(DEFAULT_HOTKEY_MODS)
+                    hotkey["vk"] = DEFAULT_HOTKEY_VK
+                    return True
+        return False
 
     # --- generic access -----------------------------------------------------
 
