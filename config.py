@@ -5,6 +5,7 @@ ElevenLabs API key) live in .env, never here.
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -240,10 +241,17 @@ class Config:
             path = _config_path()
             path.parent.mkdir(parents=True, exist_ok=True)
             tmp = path.with_suffix(".json.tmp")
-            with open(tmp, "w", encoding="utf-8") as fh:
-                json.dump(self._data, fh, indent=2)
-                fh.write("\n")
-            os.replace(tmp, path)
+            try:
+                with open(tmp, "w", encoding="utf-8") as fh:
+                    json.dump(self._data, fh, indent=2)
+                    fh.write("\n")
+                os.replace(tmp, path)
+            except Exception:
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                raise
 
     def _migrate(self, migrate_legacy_capture_default: bool = False) -> bool:
         """Apply safe config migrations for historical defaults."""
@@ -280,14 +288,24 @@ class Config:
 
     def set(self, dotted_key: str, value: Any) -> None:
         with self._lock:
-            self._set_in_memory(dotted_key, value)
-            self.save()
+            previous = copy.deepcopy(self._data)
+            try:
+                self._set_in_memory(dotted_key, value)
+                self.save()
+            except Exception:
+                self._data = previous
+                raise
 
     def set_many(self, values: dict[str, Any]) -> None:
         with self._lock:
-            for dotted_key, value in values.items():
-                self._set_in_memory(dotted_key, value)
-            self.save()
+            previous = copy.deepcopy(self._data)
+            try:
+                for dotted_key, value in values.items():
+                    self._set_in_memory(dotted_key, value)
+                self.save()
+            except Exception:
+                self._data = previous
+                raise
 
     def _set_in_memory(self, dotted_key: str, value: Any) -> None:
         parts = dotted_key.split(".")

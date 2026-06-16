@@ -233,6 +233,18 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("claude", payload)
             self.assertIn("elevenlabs", payload)
 
+    def test_failed_save_rolls_back_memory_and_removes_temp_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+            path = Path(tmp) / "VoiceAssistant" / "config.json"
+
+            with patch("config.os.replace", side_effect=OSError("locked")):
+                with self.assertRaises(OSError):
+                    config.claude_model = "sonnet"
+
+            self.assertEqual(config.claude_model, DEFAULT_CLAUDE_MODEL)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
+
     def test_string_settings_fall_back_on_wrong_type(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = self._load_with_appdata(Path(tmp))
