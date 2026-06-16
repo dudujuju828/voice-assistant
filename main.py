@@ -123,9 +123,20 @@ class VoiceAssistant(QObject):
             self._tray.notify("Claude not installed", str(exc))
 
         # --- push-to-talk hotkey ---
-        mods = self._config.get("hotkey.mods", ["ctrl", "shift"])
-        vk = self._config.get("hotkey.vk", "Space")
-        self._hotkey = HotkeyManager(mods, vk)
+        self._hotkey: HotkeyManager | None = None
+        self._init_hotkey()
+
+    # --- pipeline -----------------------------------------------------------
+
+    def _init_hotkey(self) -> None:
+        mods = self._config.get("hotkey.mods", ["ctrl"])
+        vk = self._config.get("hotkey.vk", "Win")
+        try:
+            self._hotkey = HotkeyManager(mods, vk)
+        except (AttributeError, OSError, ValueError) as exc:
+            self._tray.notify("Hotkey unavailable", str(exc))
+            return
+
         # Queued so heavy work never runs inside the keyboard hook callback.
         self._hotkey.pressed.connect(self._on_press, Qt.QueuedConnection)
         self._hotkey.released.connect(self._on_release, Qt.QueuedConnection)
@@ -134,8 +145,6 @@ class VoiceAssistant(QObject):
                 "Hotkey unavailable",
                 "Could not install the keyboard hook for the hotkey.",
             )
-
-    # --- pipeline -----------------------------------------------------------
 
     def _on_press(self) -> None:
         """Hotkey down: Wispr starts recording; we just show the dot."""
@@ -249,10 +258,14 @@ class VoiceAssistant(QObject):
         dialog.exec()
 
     def _on_pause_toggled(self, paused: bool) -> None:
+        if self._hotkey is None:
+            self._tray.notify("Hotkey unavailable", "No hotkey hook is active.")
+            return
         self._hotkey.set_paused(paused)
 
     def _quit(self) -> None:
-        self._hotkey.unregister()
+        if self._hotkey is not None:
+            self._hotkey.unregister()
         self._tray.hide()
         self._app.quit()
 
