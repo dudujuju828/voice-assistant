@@ -99,8 +99,14 @@ class KBDLLHOOKSTRUCT(ctypes.Structure):
 
 
 # LRESULT CALLBACK LowLevelKeyboardProc(int, WPARAM, LPARAM)
-_HOOKPROC = ctypes.CFUNCTYPE(
-    ctypes.c_long, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
+#
+# ctypes.wintypes does not expose LRESULT on all Python builds. LPARAM is
+# pointer-sized on Windows, which matches LRESULT and keeps the hook safe on
+# 64-bit interpreters.
+_LRESULT = getattr(wintypes, "LRESULT", wintypes.LPARAM)
+_CALLBACK_FACTORY = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)
+_HOOKPROC = _CALLBACK_FACTORY(
+    _LRESULT, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
 )
 
 
@@ -134,7 +140,7 @@ class HotkeyManager(QObject):
         self._user32.SetWindowsHookExW.argtypes = [
             ctypes.c_int, _HOOKPROC, wintypes.HMODULE, wintypes.DWORD
         ]
-        self._user32.CallNextHookEx.restype = ctypes.c_long
+        self._user32.CallNextHookEx.restype = _LRESULT
         self._user32.CallNextHookEx.argtypes = [
             wintypes.HHOOK, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM
         ]
