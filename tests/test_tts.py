@@ -47,7 +47,7 @@ class TTSTests(unittest.TestCase):
             patch.object(tts, "sd", FakeSoundDevice()),
             patch("tts.requests.post", return_value=FakeResponse()) as post,
         ):
-            tts.speak(
+            result = tts.speak(
                 "hello",
                 "voice-id",
                 "eleven_multilingual_v2",
@@ -57,6 +57,7 @@ class TTSTests(unittest.TestCase):
                 request_timeout=12,
             )
 
+        self.assertTrue(result)
         body = post.call_args.kwargs["json"]
         self.assertEqual(post.call_args.kwargs["timeout"], 12)
         self.assertEqual(body["model_id"], "eleven_multilingual_v2")
@@ -64,6 +65,14 @@ class TTSTests(unittest.TestCase):
             body["voice_settings"],
             {"stability": 0.2, "similarity_boost": 0.9, "speed": 1.1},
         )
+
+    def test_speak_returns_false_without_api_key(self) -> None:
+        with (
+            patch.dict("os.environ", {}, clear=True),
+            patch.object(tts, "sd", FakeSoundDevice()),
+            patch("tts.logger.warning"),
+        ):
+            self.assertFalse(tts.speak("hello", "voice-id"))
 
 
 if __name__ == "__main__":

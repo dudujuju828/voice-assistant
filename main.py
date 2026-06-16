@@ -97,7 +97,7 @@ class SpeakWorker(QThread):
 
     def run(self) -> None:
         try:
-            tts.speak(
+            played = tts.speak(
                 self._text,
                 self._voice_id,
                 self._model_id,
@@ -106,6 +106,10 @@ class SpeakWorker(QThread):
                 self._speed,
                 self._request_timeout,
             )
+            if not played:
+                self.failed.emit(
+                    "TTS playback failed. Check ElevenLabs, audio, and logs."
+                )
         except Exception as exc:  # defensive; tts.speak should degrade itself
             self.failed.emit(f"TTS error: {exc}")
         finally:

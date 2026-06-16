@@ -40,23 +40,24 @@ def speak(
     similarity_boost: float = 0.75,
     speed: float = 1.0,
     request_timeout: float = REQUEST_TIMEOUT,
-) -> None:
+) -> bool:
     """Synthesize ``text`` and play it back, blocking until playback ends.
 
     Failures are swallowed (logged) so a TTS outage degrades to silence rather
-    than crashing the pipeline. Run this off the UI thread (see main.SpeakWorker).
+    than crashing the pipeline. Returns True only when playback was attempted
+    successfully. Run this off the UI thread (see main.SpeakWorker).
     """
     text = (text or "").strip()
     if not text:
-        return
+        return False
 
     key = _api_key()
     if not key:
         logger.warning("ELEVENLABS_API_KEY not set; skipping speech.")
-        return
+        return False
     if sd is None:
         logger.warning("sounddevice unavailable; skipping speech.")
-        return
+        return False
 
     url = (
         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream"
@@ -88,12 +89,14 @@ def speak(
             if resp.status_code != 200:
                 detail = resp.text[:200] if resp.content else ""
                 logger.warning("ElevenLabs error %s: %s", resp.status_code, detail)
-                return
+                return False
             _play_stream(resp)
+            return True
     except requests.RequestException as exc:
         logger.warning("ElevenLabs request failed: %s", exc)
     except Exception as exc:  # pragma: no cover - defensive
         logger.exception("TTS playback failed: %s", exc)
+    return False
 
 
 def _play_stream(resp: "requests.Response") -> None:
