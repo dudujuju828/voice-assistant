@@ -180,6 +180,15 @@ class Config:
         return node
 
     def set(self, dotted_key: str, value: Any) -> None:
+        self._set_in_memory(dotted_key, value)
+        self.save()
+
+    def set_many(self, values: dict[str, Any]) -> None:
+        for dotted_key, value in values.items():
+            self._set_in_memory(dotted_key, value)
+        self.save()
+
+    def _set_in_memory(self, dotted_key: str, value: Any) -> None:
         parts = dotted_key.split(".")
         node = self._data
         for part in parts[:-1]:
@@ -189,7 +198,6 @@ class Config:
                 node[part] = child
             node = child
         node[parts[-1]] = value
-        self.save()
 
     # --- typed convenience accessors ---------------------------------------
 

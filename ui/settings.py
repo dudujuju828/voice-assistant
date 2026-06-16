@@ -214,25 +214,27 @@ class SettingsDialog(QDialog):
         form.addRow(buttons)
 
     def _on_save(self) -> None:
+        updates = {}
         device = self._monitor_combo.currentData()
         if device is not None:
-            self._config.capture_monitor_device = device
+            updates["capture_monitor_device"] = device
         voice_id = self._voice_combo.currentData()
         if voice_id:
-            self._config.voice_id = voice_id
+            updates["elevenlabs.voice_id"] = voice_id
         capture_method = self._capture_method_combo.currentData()
         if capture_method:
-            self._config.capture_method = capture_method
+            updates["capture.method"] = capture_method
         claude_model = _combo_value(self._claude_model_combo)
         if claude_model:
-            self._config.claude_model = claude_model
+            updates["claude.model"] = claude_model
         claude_effort = self._claude_effort_combo.currentData()
         if claude_effort:
-            self._config.claude_effort = claude_effort
+            updates["claude.effort"] = claude_effort
         tts_model = _combo_value(self._tts_model_combo)
         if tts_model:
-            self._config.tts_model = tts_model
-        self._config.tts_stability = self._stability_input.value()
-        self._config.tts_similarity_boost = self._similarity_input.value()
-        self._config.tts_speed = self._speed_input.value()
+            updates["elevenlabs.model_id"] = tts_model
+        updates["elevenlabs.stability"] = self._stability_input.value()
+        updates["elevenlabs.similarity_boost"] = self._similarity_input.value()
+        updates["elevenlabs.speed"] = self._speed_input.value()
+        self._config.set_many(updates)
         self.accept()

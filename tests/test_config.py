@@ -91,6 +91,22 @@ class ConfigTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 config.claude_effort = "not-real"
 
+    def test_set_many_updates_nested_values_with_one_save(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set_many(
+                {
+                    "claude.model": "sonnet",
+                    "claude.effort": "low",
+                    "elevenlabs.speed": 1.1,
+                }
+            )
+
+            self.assertEqual(config.claude_model, "sonnet")
+            self.assertEqual(config.claude_effort, "low")
+            self.assertEqual(config.tts_speed, 1.1)
+
     def test_legacy_default_hotkey_migrates_to_ctrl_win(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_dir = Path(tmp) / "VoiceAssistant"
