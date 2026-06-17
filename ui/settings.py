@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QSpinBox,
 )
 
@@ -279,5 +280,15 @@ class SettingsDialog(QDialog):
         updates["elevenlabs.stability"] = self._stability_input.value()
         updates["elevenlabs.similarity_boost"] = self._similarity_input.value()
         updates["elevenlabs.speed"] = self._speed_input.value()
-        self._config.set_many(updates)
+        try:
+            self._config.set_many(updates)
+        except Exception as exc:
+            # set_many rolls back in-memory state and re-raises on disk failure;
+            # keep the dialog open and tell the user instead of crashing the slot.
+            QMessageBox.warning(
+                self,
+                "Voice Assistant",
+                f"Could not save settings:\n{exc}",
+            )
+            return
         self.accept()
