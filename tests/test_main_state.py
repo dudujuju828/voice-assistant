@@ -4,6 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from PySide6.QtCore import QObject
+
 from main import VoiceAssistant
 
 
@@ -13,6 +15,12 @@ class FakeOverlay:
 
     def show_recording(self) -> None:
         self.events.append("recording")
+
+    def show_processing(self) -> None:
+        self.events.append("processing")
+
+    def show_speaking(self) -> None:
+        self.events.append("speaking")
 
     def show_error(self) -> None:
         self.events.append("error")
@@ -118,6 +126,44 @@ class MainStateTests(unittest.TestCase):
         assistant._clipboard_text_before_capture = "old text"
 
         self.assertEqual(assistant._read_clipboard_transcript(), "new text")
+
+    def test_watchdog_recovers_stuck_turn(self) -> None:
+        assistant = self._assistant()
+        assistant._watchdog = None  # _stop_watchdog tolerates this
+        assistant._busy = True
+        assistant._recording = False
+
+        with patch("main.logger.warning"):
+            assistant._on_watchdog_timeout()
+
+        self.assertFalse(assistant._busy)
+        self.assertFalse(assistant._recording)
+        self.assertIn("hide", assistant._overlay.events)
+        self.assertTrue(assistant._tray.notifications)
+
+    def test_watchdog_noop_when_idle(self) -> None:
+        assistant = self._assistant()
+        assistant._watchdog = None
+        assistant._busy = False
+        assistant._recording = False
+
+        assistant._on_watchdog_timeout()
+
+        # Nothing to recover: no notification, no overlay change.
+        self.assertEqual(assistant._tray.notifications, [])
+        self.assertEqual(assistant._overlay.events, [])
+
+    def test_stale_reply_is_ignored(self) -> None:
+        # A reply from a timed-out (non-current) worker must not start playback.
+        assistant = self._assistant()
+        QObject.__init__(assistant)  # so self.sender() is usable
+        assistant._ask_worker = object()  # current worker is something else
+        assistant._speak_worker = None
+
+        assistant._on_reply("late reply")  # called directly -> sender() is None
+
+        self.assertIsNone(assistant._speak_worker)
+        self.assertNotIn("speaking", assistant._overlay.events)
 
 
 if __name__ == "__main__":
