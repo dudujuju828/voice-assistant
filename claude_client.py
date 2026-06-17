@@ -9,9 +9,15 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 from typing import Optional
 
 from config import Config
+
+# The `claude` CLI is a .cmd/script wrapper on Windows; spawning it from our
+# windowless (pythonw) parent would otherwise pop a visible console window each
+# turn. CREATE_NO_WINDOW keeps the child's console hidden.
+_NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 SESSION_ERROR_PATTERNS = (
     "no conversation found",
     "conversation not found",
@@ -143,6 +149,7 @@ class ClaudeClient:
                 errors="replace",
                 timeout=timeout_seconds,
                 shell=False,
+                creationflags=_NO_WINDOW,
             )
         except subprocess.TimeoutExpired as exc:
             raise ClaudeError(
