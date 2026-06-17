@@ -131,6 +131,16 @@ class VoiceAssistant(QObject):
         self._clipboard_text_before_capture: str | None = None
         self._ask_worker: AskWorker | None = None
         self._speak_worker: SpeakWorker | None = None
+        # Strong refs to every live worker. A finished worker is removed and
+        # deleteLater'd; a *hung* worker stays here so it is never garbage
+        # collected mid-run (which crashes with "QThread destroyed while still
+        # running"). It simply leaks until it unblocks.
+        self._workers: set[QThread] = set()
+        # Last-resort guard against a stuck turn (e.g. an audio device that
+        # never drains): force the app back to idle so it can't wedge forever.
+        self._watchdog = QTimer(self)
+        self._watchdog.setSingleShot(True)
+        self._watchdog.timeout.connect(self._on_watchdog_timeout)
 
         # --- UI pieces (near-zero visual footprint) ---
         self._overlay = StatusOverlay(self._config)
@@ -213,6 +223,7 @@ class VoiceAssistant(QObject):
             return
         self._recording = False
         self._busy = True
+        self._start_watchdog()
         self._overlay.show_processing()
         QTimer.singleShot(self._config.capture_delay_ms, self._capture_and_ask)
 
@@ -234,6 +245,7 @@ class VoiceAssistant(QObject):
         )
         self._ask_worker.succeeded.connect(self._on_reply)
         self._ask_worker.failed.connect(self._on_ask_failed)
+        self._track_worker(self._ask_worker)
         self._ask_worker.start()
 
     def _read_transcript(self) -> str:
@@ -277,6 +289,8 @@ class VoiceAssistant(QObject):
             self._clipboard_changed_during_capture = True
 
     def _on_reply(self, reply: str) -> None:
+        if self.sender() is not self._ask_worker:
+            return  # Stale worker from a timed-out turn; ignore.
         self._overlay.show_speaking()
         self._speak_worker = SpeakWorker(
             reply,
@@ -289,9 +303,12 @@ class VoiceAssistant(QObject):
         )
         self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)
+        self._track_worker(self._speak_worker)
         self._speak_worker.start()
 
     def _on_speech_done(self) -> None:
+        if self.sender() is not self._speak_worker:
+            return  # Stale worker from a timed-out turn; ignore.
         self._return_to_idle()
 
     def _on_speech_failed(self, message: str) -> None:
@@ -299,26 +316,64 @@ class VoiceAssistant(QObject):
         self._tray.notify("Voice Assistant", message)
 
     def _on_ask_failed(self, message: str) -> None:
+        if self.sender() is not self._ask_worker:
+            return  # Stale worker from a timed-out turn; ignore.
         self._fail_current_turn(message)
 
-    def _return_to_idle(self) -> None:
+    # --- worker + watchdog lifecycle ----------------------------------------
+
+    def _track_worker(self, worker: QThread) -> None:
+        """Hold a strong ref until the worker finishes, then clean it up."""
+        self._workers.add(worker)
+        worker.finished.connect(self._on_worker_finished)
+
+    def _on_worker_finished(self) -> None:
+        worker = self.sender()
+        if worker is not None:
+            self._workers.discard(worker)
+            worker.deleteLater()
+
+    def _start_watchdog(self) -> None:
+        # Budget beyond every internal timeout so it only fires on a true hang.
+        budget = (
+            self._config.claude_timeout_seconds
+            + self._config.tts_request_timeout_seconds
+            + 60
+        )
+        self._watchdog.start(budget * 1000)
+
+    def _stop_watchdog(self) -> None:
+        watchdog = getattr(self, "_watchdog", None)
+        if watchdog is not None:
+            watchdog.stop()
+
+    def _on_watchdog_timeout(self) -> None:
+        if not self._busy and not self._recording:
+            return
+        logger.warning("Turn watchdog fired; a worker is stuck. Returning to idle.")
+        self._tray.notify(
+            "Voice Assistant", "That turn timed out. Ready for the next one."
+        )
+        self._reset_state()
+        self._overlay.hide()
+
+    def _reset_state(self) -> None:
         self._recording = False
         self._busy = False
         self._active_capture_method = None
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
         self._clipboard_text_before_capture = None
+        self._stop_watchdog()
+
+    def _return_to_idle(self) -> None:
+        self._reset_state()
         self._overlay.hide()
 
     def _fail_current_turn(self, message: str) -> None:
         logger.warning(message)
         self._tray.notify("Voice Assistant", message)
-        self._recording = False
-        self._busy = False
-        self._active_capture_method = None
-        self._clipboard_capture_active = False
-        self._clipboard_changed_during_capture = False
-        self._clipboard_text_before_capture = None
+        self._reset_state()
         self._overlay.show_error()
         QTimer.singleShot(2500, self._overlay.hide)
 
