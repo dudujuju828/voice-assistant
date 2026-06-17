@@ -12,20 +12,74 @@ fallback for people who can't or don't want to use clipboard copy.
 """
 from __future__ import annotations
 
+import sys
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QLineEdit, QWidget
 
 import monitors
 
-try:
-    import win32gui
-except ImportError:  # pragma: no cover - non-Windows dev import
-    win32gui = None  # type: ignore
+if sys.platform == "win32":  # pragma: no cover - exercised only on Windows
+    import ctypes
+    from ctypes import wintypes
+
+    _user32 = ctypes.windll.user32
+    _kernel32 = ctypes.windll.kernel32
+    _user32.GetForegroundWindow.restype = wintypes.HWND
+    _user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    _user32.GetWindowThreadProcessId.argtypes = [
+        wintypes.HWND,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _user32.AttachThreadInput.restype = wintypes.BOOL
+    _user32.AttachThreadInput.argtypes = [
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.BOOL,
+    ]
+    _user32.BringWindowToTop.argtypes = [wintypes.HWND]
+    _user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+    _user32.SetActiveWindow.argtypes = [wintypes.HWND]
+    _kernel32.GetCurrentThreadId.restype = wintypes.DWORD
+else:  # pragma: no cover - non-Windows dev import
+    _user32 = None
+    _kernel32 = None
 
 CAPTURE_PLACEHOLDER = "Listening..."
 VISIBLE_MARGIN = 48
 VISIBLE_WIDTH = 720
 VISIBLE_HEIGHT = 52
+
+
+def _force_foreground(hwnd: int) -> None:
+    """Reliably activate our window and give it real keyboard focus.
+
+    A background process calling ``SetForegroundWindow`` is normally blocked by
+    Windows' foreground lock: the box would appear (and even show its blue text
+    selection) without actually receiving keystrokes, so Wispr typed nowhere and
+    the user had to click the box first. Briefly attaching to the current
+    foreground thread's input queue lets the activation through — the same way a
+    manual click would — then we detach so we don't keep sharing input state.
+    """
+    if _user32 is None:  # pragma: no cover - non-Windows dev import
+        return
+
+    foreground = _user32.GetForegroundWindow()
+    current_thread = _kernel32.GetCurrentThreadId()
+    foreground_thread = _user32.GetWindowThreadProcessId(foreground, None)
+
+    attached = False
+    if foreground_thread and foreground_thread != current_thread:
+        attached = bool(
+            _user32.AttachThreadInput(foreground_thread, current_thread, True)
+        )
+    try:
+        _user32.BringWindowToTop(hwnd)
+        _user32.SetForegroundWindow(hwnd)
+        _user32.SetActiveWindow(hwnd)
+    finally:
+        if attached:
+            _user32.AttachThreadInput(foreground_thread, current_thread, False)
 
 
 class HiddenInput(QWidget):
@@ -51,11 +105,7 @@ class HiddenInput(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        if win32gui is not None:
-            try:
-                win32gui.SetForegroundWindow(int(self.winId()))
-            except Exception:
-                pass
+        _force_foreground(int(self.winId()))
         self._edit.setFocus(Qt.OtherFocusReason)
 
     def read_and_clear(self) -> str:
@@ -104,11 +154,7 @@ class VisibleInput(QWidget):
         self.show()
         self.raise_()
         self.activateWindow()
-        if win32gui is not None:
-            try:
-                win32gui.SetForegroundWindow(int(self.winId()))
-            except Exception:
-                pass
+        _force_foreground(int(self.winId()))
         self._edit.setFocus(Qt.OtherFocusReason)
         self._edit.selectAll()
 
