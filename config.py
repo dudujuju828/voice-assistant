@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 # --- defaults ---------------------------------------------------------------
 
 DEFAULT_VOICE_ID = "pFZP5JQG7iQjIQuC4Bku"  # Lily — a premade voice usable on the free plan
-DEFAULT_TTS_MODEL = "eleven_flash_v2_5"
-DEFAULT_CLAUDE_MODEL = "opus"
+DEFAULT_TTS_MODEL = "eleven_turbo_v2_5"  # quality/latency balance — good for streaming
+DEFAULT_CLAUDE_MODEL = "haiku"  # fastest model, so spoken replies feel snappy
 DEFAULT_CLAUDE_EFFORT = "default"
 DEFAULT_HOTKEY_MODS = ["ctrl"]
 DEFAULT_HOTKEY_VK = "Win"
@@ -156,6 +156,28 @@ def _bounded_float(value: Any, default: float, minimum: float, maximum: float) -
     return max(minimum, min(parsed, maximum))
 
 
+def _is_valid_number_in_range(value: Any, minimum: float, maximum: float) -> bool:
+    """True only for a real number already within [minimum, maximum]."""
+    if isinstance(value, bool):  # bool is an int subclass; never a valid setting
+        return False
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return False
+    return minimum <= parsed <= maximum
+
+
+# TTS voice settings that must be sane numbers; (key, default, min, max). On
+# load, a stored value that is the wrong type or out of range is reset to the
+# normal default and persisted, so a corrupt config self-heals to high-quality
+# settings instead of being silently clamped to an extreme each turn.
+_TTS_NUMERIC_FIELDS = (
+    ("stability", DEFAULT_TTS_STABILITY, 0.0, 1.0),
+    ("similarity_boost", DEFAULT_TTS_SIMILARITY_BOOST, 0.0, 1.0),
+    ("speed", DEFAULT_TTS_SPEED, MIN_TTS_SPEED, MAX_TTS_SPEED),
+)
+
+
 def _bounded_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     try:
         parsed = int(value)
@@ -263,6 +285,14 @@ class Config:
                 capture["method"] = DEFAULT_CAPTURE_METHOD
                 capture["legacy_default_migrated"] = True
                 changed = True
+
+        # Self-heal corrupt/out-of-range TTS voice settings back to defaults.
+        elevenlabs = self._data.get("elevenlabs")
+        if isinstance(elevenlabs, dict):
+            for key, default, minimum, maximum in _TTS_NUMERIC_FIELDS:
+                if not _is_valid_number_in_range(elevenlabs.get(key), minimum, maximum):
+                    elevenlabs[key] = default
+                    changed = True
 
         mods = self.get("hotkey.mods")
         vk = self.get("hotkey.vk")

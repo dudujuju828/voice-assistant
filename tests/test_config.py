@@ -17,6 +17,8 @@ from config import (
     DEFAULT_HOTKEY_VK,
     DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_TTS_MODEL,
+    DEFAULT_TTS_SIMILARITY_BOOST,
+    DEFAULT_TTS_SPEED,
     DEFAULT_TTS_STABILITY,
     MAX_CLAUDE_TIMEOUT_SECONDS,
     DEFAULT_VOICE_ID,
@@ -80,6 +82,54 @@ class ConfigTests(unittest.TestCase):
 
             config.capture_delay_ms = MAX_CAPTURE_DELAY_MS + 1
             self.assertEqual(config.capture_delay_ms, MAX_CAPTURE_DELAY_MS)
+
+    def test_invalid_tts_settings_self_heal_to_defaults_on_load(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "VoiceAssistant"
+            config_dir.mkdir()
+            path = config_dir / "config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "elevenlabs": {
+                            "stability": "bad",  # wrong type
+                            "similarity_boost": 2,  # above range
+                            "speed": -1,  # below range
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = self._load_with_appdata(Path(tmp))
+
+            # Reset to the normal defaults, not clamped to the nearest extreme.
+            self.assertEqual(config.tts_stability, DEFAULT_TTS_STABILITY)
+            self.assertEqual(config.tts_similarity_boost, DEFAULT_TTS_SIMILARITY_BOOST)
+            self.assertEqual(config.tts_speed, DEFAULT_TTS_SPEED)
+            # And persisted, so the corrupt values do not linger on disk.
+            persisted = json.loads(path.read_text())["elevenlabs"]
+            self.assertEqual(persisted["stability"], DEFAULT_TTS_STABILITY)
+            self.assertEqual(persisted["similarity_boost"], DEFAULT_TTS_SIMILARITY_BOOST)
+            self.assertEqual(persisted["speed"], DEFAULT_TTS_SPEED)
+
+    def test_valid_tts_settings_are_preserved_on_load(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "VoiceAssistant"
+            config_dir.mkdir()
+            path = config_dir / "config.json"
+            path.write_text(
+                json.dumps(
+                    {"elevenlabs": {"stability": 0.3, "similarity_boost": 0.9, "speed": 1.1}}
+                ),
+                encoding="utf-8",
+            )
+
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.tts_stability, 0.3)
+            self.assertEqual(config.tts_similarity_boost, 0.9)
+            self.assertEqual(config.tts_speed, 1.1)
 
     def test_invalid_capture_method_falls_back_to_visible_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

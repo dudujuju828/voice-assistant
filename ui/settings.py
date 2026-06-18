@@ -39,8 +39,9 @@ _FALLBACK_VOICES = [
 ]
 
 _CLAUDE_MODELS = [
-    ("Opus", "opus"),
+    ("Haiku (fastest)", "haiku"),
     ("Sonnet", "sonnet"),
+    ("Opus", "opus"),
     ("Fable", "fable"),
 ]
 
