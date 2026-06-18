@@ -220,24 +220,38 @@ class VoiceAssistant(QObject):
         self._active_capture_method = self._config.capture_method
         try:
             self._overlay.show_recording()
-            if self._active_capture_method == "hidden_input":
-                self._hidden.focus_for_capture()
-            elif self._active_capture_method == "visible_input":
-                self._visible_input.focus_for_capture()
-            else:
+            if self._active_capture_method == "clipboard":
                 self._begin_clipboard_capture()
+            else:
+                self._focus_capture_box()
         except Exception as exc:
             self._fail_current_turn(f"Transcript input failed: {exc}")
 
     def _on_release(self) -> None:
-        """Hotkey up: give Wispr a moment, then capture and process."""
+        """Hotkey up: re-assert capture focus, give Wispr a moment, then read."""
         if not self._recording:
             return
         self._recording = False
         self._busy = True
+        # Wispr types its transcript on key release. If focus drifted while
+        # recording (e.g. the user clicked another window), the keystrokes would
+        # land there instead, so re-grab the capture box now — right before
+        # those keystrokes arrive.
+        if self._active_capture_method in ("hidden_input", "visible_input"):
+            try:
+                self._focus_capture_box()
+            except Exception as exc:
+                logger.warning("Could not re-focus capture box on release: %s", exc)
         self._start_watchdog()
         self._overlay.show_processing()
         QTimer.singleShot(self._config.capture_delay_ms, self._capture_and_ask)
+
+    def _focus_capture_box(self) -> None:
+        """Focus the active input box so Wispr's keystrokes land in it."""
+        if self._active_capture_method == "hidden_input":
+            self._hidden.focus_for_capture()
+        elif self._active_capture_method == "visible_input":
+            self._visible_input.focus_for_capture()
 
     def _capture_and_ask(self) -> None:
         try:

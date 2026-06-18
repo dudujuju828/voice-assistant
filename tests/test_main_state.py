@@ -72,6 +72,7 @@ class MainStateTests(unittest.TestCase):
         assistant._config = SimpleNamespace(
             capture_method="visible_input",
             capture_monitor_device=None,
+            capture_delay_ms=500,
         )
         assistant._overlay = FakeOverlay()
         assistant._tray = FakeTray()
@@ -185,6 +186,40 @@ class MainStateTests(unittest.TestCase):
         self.assertFalse(assistant._busy)
         self.assertTrue(assistant._visible_input.focused)
         self.assertIn("recording", assistant._overlay.events)
+
+    def test_release_refocuses_capture_box_before_capture(self) -> None:
+        # Wispr types on release, so the box must be re-focused then in case
+        # focus drifted to another window while recording.
+        assistant = self._assistant()
+        assistant._recording = True
+        assistant._active_capture_method = "visible_input"
+        assistant._visible_input = RecordingCaptureInput()
+        assistant._start_watchdog = lambda: None  # type: ignore[method-assign]
+
+        with patch("main.QTimer.singleShot", lambda *_args: None):
+            assistant._on_release()
+
+        self.assertTrue(assistant._visible_input.focused)
+        self.assertFalse(assistant._recording)
+        self.assertTrue(assistant._busy)
+        self.assertIn("processing", assistant._overlay.events)
+
+    def test_release_refocus_failure_does_not_crash_turn(self) -> None:
+        # A focus error on release is logged but must not abort the turn.
+        assistant = self._assistant()
+        assistant._recording = True
+        assistant._active_capture_method = "visible_input"
+        assistant._visible_input = FailingCaptureInput()
+        assistant._start_watchdog = lambda: None  # type: ignore[method-assign]
+
+        with (
+            patch("main.QTimer.singleShot", lambda *_args: None),
+            patch("main.logger.warning"),
+        ):
+            assistant._on_release()
+
+        self.assertTrue(assistant._busy)
+        self.assertIn("processing", assistant._overlay.events)
 
     def test_stale_speech_failure_is_ignored(self) -> None:
         # A failure from a barged-in/timed-out speak worker must not notify.
