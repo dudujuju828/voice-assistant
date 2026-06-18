@@ -18,6 +18,9 @@ ENV/
 # Secrets
 .env
 
+# Local TTS model files (large; downloaded separately — see README)
+models/
+
 # Scaffolding artifacts
 .architecture-research.json
 .architecture-final.json

@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_VOICE_ID = "pFZP5JQG7iQjIQuC4Bku"  # Lily — a premade voice usable on the free plan
 DEFAULT_TTS_MODEL = "eleven_turbo_v2_5"  # quality/latency balance — good for streaming
+
+# TTS provider: the ElevenLabs API, or a local model (Kokoro) for offline /
+# no-credit use. The local voice is a Kokoro voice id (e.g. af_heart, am_adam).
+DEFAULT_TTS_PROVIDER = "elevenlabs"
+TTS_PROVIDERS = {"elevenlabs", "local"}
+DEFAULT_LOCAL_VOICE = "af_heart"
 DEFAULT_CLAUDE_MODEL = "haiku"  # fastest model, so spoken replies feel snappy
 DEFAULT_CLAUDE_EFFORT = "default"
 DEFAULT_HOTKEY_MODS = ["ctrl"]
@@ -99,6 +105,10 @@ def _default_config() -> dict[str, Any]:
             "model": DEFAULT_CLAUDE_MODEL,
             "effort": DEFAULT_CLAUDE_EFFORT,
             "timeout_seconds": DEFAULT_CLAUDE_TIMEOUT_SECONDS,
+        },
+        "tts": {
+            "provider": DEFAULT_TTS_PROVIDER,
+            "local_voice": DEFAULT_LOCAL_VOICE,
         },
     }
 
@@ -385,6 +395,27 @@ class Config:
     @voice_id.setter
     def voice_id(self, value: str) -> None:
         self.set("elevenlabs.voice_id", value)
+
+    @property
+    def tts_provider(self) -> str:
+        """Which TTS backend to use: 'elevenlabs' (API) or 'local' (Kokoro)."""
+        provider = str(self.get("tts.provider", DEFAULT_TTS_PROVIDER) or "").lower()
+        return provider if provider in TTS_PROVIDERS else DEFAULT_TTS_PROVIDER
+
+    @tts_provider.setter
+    def tts_provider(self, value: str) -> None:
+        provider = (value or DEFAULT_TTS_PROVIDER).strip().lower()
+        if provider not in TTS_PROVIDERS:
+            raise ValueError(f"Unknown TTS provider: {value!r}")
+        self.set("tts.provider", provider)
+
+    @property
+    def tts_local_voice(self) -> str:
+        return _non_empty_str(self.get("tts.local_voice"), DEFAULT_LOCAL_VOICE)
+
+    @tts_local_voice.setter
+    def tts_local_voice(self, value: str) -> None:
+        self.set("tts.local_voice", _non_empty_str(value, DEFAULT_LOCAL_VOICE))
 
     @property
     def tts_model(self) -> str:

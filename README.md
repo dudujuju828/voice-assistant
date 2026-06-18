@@ -16,7 +16,8 @@ See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
   Wispr → input-box typing via UIPI).
 - **Python 3.10+**
 - **Claude Code CLI** on PATH: `npm i -g @anthropic-ai/claude-code`
-- An **ElevenLabs API key**
+- An **ElevenLabs API key** (only for the ElevenLabs TTS provider; the local
+  Kokoro provider needs no key — see [Local TTS](#local-tts-offline)).
 
 ## Setup
 
@@ -74,3 +75,24 @@ fields. Claude effort maps to the Claude Code CLI `--effort` option (`low`,
 flag. Claude and ElevenLabs timeouts are configurable and bounded. ElevenLabs
 stability, similarity, and speed are also bounded before use so bad config
 values fall back to safe ranges.
+
+### Local TTS (offline)
+
+You can run text-to-speech locally with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx)
+instead of the ElevenLabs API — handy when you're offline or out of credits. No
+API key is needed.
+
+1. Install the optional deps: `pip install kokoro-onnx soundfile`.
+2. Download the model files into a `models/` folder next to `main.py`:
+   - [`kokoro-v1.0.onnx`](https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx) (~325 MB)
+   - [`voices-v1.0.bin`](https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin) (~28 MB)
+3. In Settings, set **TTS provider** to *Local — Kokoro* and pick a **Local
+   voice** (e.g. `af_heart`, `am_adam`, `bf_emma`; the field is editable so any
+   Kokoro voice id works).
+
+The model files are large and are git-ignored, so they live only on your
+machine. The phonemizer (espeak-ng) ships bundled via `espeakng-loader`, so no
+separate system install is required on Windows. The first reply after launch
+loads the model (a few seconds); later replies are faster. If the model files
+are missing, the app logs a warning and stays silent rather than crashing — so
+switch back to the ElevenLabs provider if you haven't downloaded them.

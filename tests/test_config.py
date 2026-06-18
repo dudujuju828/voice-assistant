@@ -131,6 +131,35 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.tts_similarity_boost, 0.9)
             self.assertEqual(config.tts_speed, 1.1)
 
+    def test_tts_provider_defaults_and_validates(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.tts_provider, "elevenlabs")
+
+            config.tts_provider = "local"
+            self.assertEqual(config.tts_provider, "local")
+
+            # An unknown stored value falls back to the default.
+            config.set("tts.provider", "bogus")
+            self.assertEqual(config.tts_provider, "elevenlabs")
+
+            with self.assertRaises(ValueError):
+                config.tts_provider = "nope"
+
+    def test_local_voice_defaults_and_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.tts_local_voice, "af_heart")
+
+            config.tts_local_voice = "am_adam"
+            self.assertEqual(config.tts_local_voice, "am_adam")
+
+            # Blank/invalid falls back to the default.
+            config.tts_local_voice = "   "
+            self.assertEqual(config.tts_local_voice, "af_heart")
+
     def test_include_screenshot_defaults_true_and_toggles(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = self._load_with_appdata(Path(tmp))

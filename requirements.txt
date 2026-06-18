@@ -4,3 +4,8 @@ pywin32
 requests
 sounddevice
 python-dotenv
+
+# Optional: local (offline) TTS via Kokoro. Only needed when the TTS provider
+# is set to "local"; the ElevenLabs API path works without these.
+kokoro-onnx
+soundfile

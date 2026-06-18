@@ -62,6 +62,23 @@ _TTS_MODELS = [
     ("Eleven v3", "eleven_v3"),
 ]
 
+_TTS_PROVIDERS = [
+    ("ElevenLabs (API)", "elevenlabs"),
+    ("Local — Kokoro (offline)", "local"),
+]
+
+# A handful of Kokoro voices for the local picker (it's editable, so any voice
+# id works). af_/am_ = American female/male, bf_/bm_ = British female/male.
+_LOCAL_VOICES = [
+    ("Heart (US female)", "af_heart"),
+    ("Bella (US female)", "af_bella"),
+    ("Nicole (US female)", "af_nicole"),
+    ("Michael (US male)", "am_michael"),
+    ("Adam (US male)", "am_adam"),
+    ("Emma (UK female)", "bf_emma"),
+    ("George (UK male)", "bm_george"),
+]
+
 
 def _fetch_voices() -> list[tuple[str, str]]:
     key = os.getenv("ELEVENLABS_API_KEY")
@@ -209,6 +226,21 @@ class SettingsDialog(QDialog):
         self._claude_timeout_input.setValue(config.claude_timeout_seconds)
         form.addRow("Claude timeout:", self._claude_timeout_input)
 
+        # --- TTS provider (ElevenLabs API vs local Kokoro) ---
+        self._tts_provider_combo = QComboBox(self)
+        for label, provider in _TTS_PROVIDERS:
+            self._tts_provider_combo.addItem(label, provider)
+        _set_combo_value(self._tts_provider_combo, config.tts_provider)
+        form.addRow("TTS provider:", self._tts_provider_combo)
+
+        # --- local (Kokoro) voice picker ---
+        self._local_voice_combo = QComboBox(self)
+        self._local_voice_combo.setEditable(True)
+        for label, voice in _LOCAL_VOICES:
+            self._local_voice_combo.addItem(label, voice)
+        _set_combo_value(self._local_voice_combo, config.tts_local_voice)
+        form.addRow("Local voice:", self._local_voice_combo)
+
         # --- voice dropdown ---
         self._voice_combo = QComboBox(self)
         self._voice_combo.setEditable(True)
@@ -287,6 +319,12 @@ class SettingsDialog(QDialog):
         if claude_effort:
             updates["claude.effort"] = claude_effort
         updates["claude.timeout_seconds"] = self._claude_timeout_input.value()
+        tts_provider = self._tts_provider_combo.currentData()
+        if tts_provider:
+            updates["tts.provider"] = tts_provider
+        local_voice = _combo_value(self._local_voice_combo)
+        if local_voice:
+            updates["tts.local_voice"] = local_voice
         tts_model = _combo_value(self._tts_model_combo)
         if tts_model:
             updates["elevenlabs.model_id"] = tts_model

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QObject
 
-from main import AskWorker, VoiceAssistant
+from main import AskWorker, SpeakWorker, VoiceAssistant
 
 
 class FakeOverlay:
@@ -300,6 +300,47 @@ class MainStateTests(unittest.TestCase):
 
         self.assertIsNone(assistant._speak_worker)
         self.assertNotIn("speaking", assistant._overlay.events)
+
+
+class SpeakWorkerDispatchTests(unittest.TestCase):
+    def _worker(self, provider: str) -> SpeakWorker:
+        return SpeakWorker(
+            "hello there",
+            "voice-id",
+            "eleven_turbo_v2_5",
+            0.5,
+            0.75,
+            1.0,
+            30,
+            threading.Event(),
+            provider,
+            "am_adam",
+        )
+
+    def test_local_provider_calls_kokoro_not_elevenlabs(self) -> None:
+        worker = self._worker("local")
+        with (
+            patch("main.tts_local.speak_local", return_value=True) as local,
+            patch("main.tts.speak") as eleven,
+        ):
+            worker.run()
+
+        eleven.assert_not_called()
+        local.assert_called_once()
+        args = local.call_args.args
+        self.assertEqual(args[0], "hello there")
+        self.assertEqual(args[1], "am_adam")  # local voice, not the EL voice id
+
+    def test_elevenlabs_provider_calls_api_not_kokoro(self) -> None:
+        worker = self._worker("elevenlabs")
+        with (
+            patch("main.tts.speak", return_value=True) as eleven,
+            patch("main.tts_local.speak_local") as local,
+        ):
+            worker.run()
+
+        local.assert_not_called()
+        eleven.assert_called_once()
 
 
 class _FakeAskClient:

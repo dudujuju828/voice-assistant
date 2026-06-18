@@ -28,6 +28,7 @@ import capture  # noqa: E402
 import runtime_checks  # noqa: E402
 from single_instance import SingleInstance  # noqa: E402
 import tts  # noqa: E402
+import tts_local  # noqa: E402
 from claude_client import (  # noqa: E402
     ClaudeClient,
     ClaudeError,
@@ -89,7 +90,12 @@ class AskWorker(QThread):
 
 
 class SpeakWorker(QThread):
-    """Streams ElevenLabs TTS playback off the UI thread."""
+    """Plays a reply via the configured TTS provider off the UI thread.
+
+    Dispatches to the ElevenLabs API (tts.speak) or the local Kokoro model
+    (tts_local.speak_local) based on ``provider``. Both honour ``cancel`` so
+    barge-in can abort playback mid-sentence.
+    """
 
     finished_speaking = Signal()
     failed = Signal(str)
@@ -104,6 +110,8 @@ class SpeakWorker(QThread):
         speed: float,
         request_timeout: float,
         cancel: threading.Event,
+        provider: str = "elevenlabs",
+        local_voice: str = "af_heart",
     ) -> None:
         super().__init__()
         self._text = text
@@ -114,19 +122,29 @@ class SpeakWorker(QThread):
         self._speed = speed
         self._request_timeout = request_timeout
         self._cancel = cancel
+        self._provider = provider
+        self._local_voice = local_voice
 
     def run(self) -> None:
         try:
-            played = tts.speak(
-                self._text,
-                self._voice_id,
-                self._model_id,
-                self._stability,
-                self._similarity_boost,
-                self._speed,
-                self._request_timeout,
-                self._cancel,
-            )
+            if self._provider == "local":
+                played = tts_local.speak_local(
+                    self._text,
+                    self._local_voice,
+                    self._speed,
+                    self._cancel,
+                )
+            else:
+                played = tts.speak(
+                    self._text,
+                    self._voice_id,
+                    self._model_id,
+                    self._stability,
+                    self._similarity_boost,
+                    self._speed,
+                    self._request_timeout,
+                    self._cancel,
+                )
             if not played and not self._cancel.is_set():
                 self.failed.emit(
                     "TTS playback failed. Check ElevenLabs, audio, and logs."
@@ -398,6 +416,8 @@ class VoiceAssistant(QObject):
             self._config.tts_speed,
             self._config.tts_request_timeout_seconds,
             self._cancel_event,
+            self._config.tts_provider,
+            self._config.tts_local_voice,
         )
         self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)
