@@ -11,6 +11,7 @@ import ctypes
 import logging
 import sys
 import threading
+import time
 
 # DPI awareness MUST be set before QApplication so mss bounds == physical px.
 if sys.platform == "win32":
@@ -40,6 +41,13 @@ from ui.status_overlay import StatusOverlay  # noqa: E402
 from ui.tray import Tray  # noqa: E402
 
 logger = logging.getLogger(__name__)
+
+# Transcript-capture polling (see VoiceAssistant._poll_capture). Wispr delivers
+# the transcript after release; a long message can take a few seconds to finish
+# arriving, so we poll instead of reading once at a fixed delay.
+_CAPTURE_POLL_INTERVAL_MS = 150
+_CAPTURE_EMPTY_TIMEOUT_MS = 2000  # give up if nothing ever arrives
+_CAPTURE_MAX_WAIT_MS = 6000       # hard cap once some text has appeared
 
 
 class AskWorker(QThread):
@@ -137,6 +145,12 @@ class VoiceAssistant(QObject):
         self._speak_worker: SpeakWorker | None = None
         # Set to interrupt the current TTS playback when the user barges in.
         self._cancel_event: threading.Event | None = None
+        # Transcript-capture polling state (see _poll_capture). The generation
+        # counter lets a stale poll from a superseded turn bail out.
+        self._capture_gen = 0
+        self._capture_last_peek = ""
+        self._capture_seen_text = False
+        self._capture_started_at = 0.0
         # Strong refs to every live worker. A finished worker is removed and
         # deleteLater'd; a *hung* worker stays here so it is never garbage
         # collected mid-run (which crashes with "QThread destroyed while still
@@ -244,7 +258,16 @@ class VoiceAssistant(QObject):
                 logger.warning("Could not re-focus capture box on release: %s", exc)
         self._start_watchdog()
         self._overlay.show_processing()
-        QTimer.singleShot(self._config.capture_delay_ms, self._capture_and_ask)
+        # Poll until the transcript settles rather than reading once at a fixed
+        # delay — a long message may still be arriving from Wispr at that point.
+        self._capture_gen += 1
+        self._capture_last_peek = ""
+        self._capture_seen_text = False
+        self._capture_started_at = time.monotonic()
+        gen = self._capture_gen
+        QTimer.singleShot(
+            self._config.capture_delay_ms, lambda: self._poll_capture(gen)
+        )
 
     def _focus_capture_box(self) -> None:
         """Focus the active input box so Wispr's keystrokes land in it."""
@@ -252,6 +275,41 @@ class VoiceAssistant(QObject):
             self._hidden.focus_for_capture()
         elif self._active_capture_method == "visible_input":
             self._visible_input.focus_for_capture()
+
+    def _poll_capture(self, gen: int) -> None:
+        """Wait for the transcript to stop changing, then run the turn.
+
+        Proceeds as soon as the text settles (unchanged between polls), so short
+        messages are still snappy, but keeps waiting for a long message that is
+        still being typed. Gives up early only if nothing ever arrives.
+        """
+        if gen != self._capture_gen or not self._busy:
+            return  # Superseded by a new turn, barge-in, or reset.
+        text = self._peek_transcript()
+        if text:
+            self._capture_seen_text = True
+        settled = bool(text) and text == self._capture_last_peek
+        self._capture_last_peek = text
+        elapsed_ms = (time.monotonic() - self._capture_started_at) * 1000
+        gave_up_empty = (
+            not self._capture_seen_text and elapsed_ms >= _CAPTURE_EMPTY_TIMEOUT_MS
+        )
+        if settled or gave_up_empty or elapsed_ms >= _CAPTURE_MAX_WAIT_MS:
+            self._capture_and_ask()
+            return
+        QTimer.singleShot(_CAPTURE_POLL_INTERVAL_MS, lambda: self._poll_capture(gen))
+
+    def _peek_transcript(self) -> str:
+        """Read the current transcript without consuming it (for polling)."""
+        method = self._active_capture_method or self._config.capture_method
+        if method == "hidden_input":
+            return self._hidden.peek_text()
+        if method == "visible_input":
+            return self._visible_input.peek_text()
+        if not self._clipboard_changed_during_capture:
+            return ""
+        clipboard = self._app.clipboard()
+        return clipboard.text().strip() if clipboard else ""
 
     def _capture_and_ask(self) -> None:
         try:
@@ -412,6 +470,10 @@ class VoiceAssistant(QObject):
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
         self._clipboard_text_before_capture = None
+        # Invalidate any in-flight capture poll.
+        self._capture_gen += 1
+        self._capture_last_peek = ""
+        self._capture_seen_text = False
         self._stop_watchdog()
 
     def _return_to_idle(self) -> None:

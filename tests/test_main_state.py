@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -68,6 +69,10 @@ class MainStateTests(unittest.TestCase):
         assistant._clipboard_capture_active = False
         assistant._clipboard_changed_during_capture = False
         assistant._clipboard_text_before_capture = None
+        assistant._capture_gen = 0
+        assistant._capture_last_peek = ""
+        assistant._capture_seen_text = False
+        assistant._capture_started_at = 0.0
         assistant._client = object()
         assistant._config = SimpleNamespace(
             capture_method="visible_input",
@@ -220,6 +225,59 @@ class MainStateTests(unittest.TestCase):
 
         self.assertTrue(assistant._busy)
         self.assertIn("processing", assistant._overlay.events)
+
+    def test_poll_waits_for_long_transcript_to_settle(self) -> None:
+        # A long message arrives over several polls; we must wait until it stops
+        # changing before reading, not fire on the first (empty/partial) poll.
+        assistant = self._assistant()
+        assistant._busy = True
+        assistant._capture_gen = 3
+        assistant._capture_started_at = time.monotonic()
+        peeks = iter(["", "the start of a", "the start of a long question",
+                      "the start of a long question"])
+        assistant._peek_transcript = lambda: next(peeks)  # type: ignore[method-assign]
+        asked: list[bool] = []
+        assistant._capture_and_ask = lambda: asked.append(True)  # type: ignore[method-assign]
+
+        with patch("main.QTimer.singleShot", lambda *_args: None):
+            assistant._poll_capture(3)  # ""        -> keep waiting
+            self.assertEqual(asked, [])
+            assistant._poll_capture(3)  # partial   -> keep waiting
+            self.assertEqual(asked, [])
+            assistant._poll_capture(3)  # grew      -> keep waiting
+            self.assertEqual(asked, [])
+            assistant._poll_capture(3)  # unchanged -> settled, ask
+            self.assertEqual(asked, [True])
+
+    def test_poll_bails_when_superseded(self) -> None:
+        assistant = self._assistant()
+        assistant._busy = True
+        assistant._capture_gen = 7
+        assistant._capture_started_at = time.monotonic()
+        assistant._peek_transcript = lambda: "anything"  # type: ignore[method-assign]
+        asked: list[bool] = []
+        assistant._capture_and_ask = lambda: asked.append(True)  # type: ignore[method-assign]
+
+        with patch("main.QTimer.singleShot", lambda *_args: None):
+            assistant._poll_capture(6)  # stale generation
+
+        self.assertEqual(asked, [])
+
+    def test_poll_gives_up_when_nothing_arrives(self) -> None:
+        assistant = self._assistant()
+        assistant._busy = True
+        assistant._capture_gen = 1
+        # Started well in the past so the empty-timeout has elapsed.
+        assistant._capture_started_at = time.monotonic() - 100
+        assistant._peek_transcript = lambda: ""  # type: ignore[method-assign]
+        asked: list[bool] = []
+        assistant._capture_and_ask = lambda: asked.append(True)  # type: ignore[method-assign]
+
+        with patch("main.QTimer.singleShot", lambda *_args: None):
+            assistant._poll_capture(1)
+
+        # Finalizes (which then quietly resets on empty text).
+        self.assertEqual(asked, [True])
 
     def test_stale_speech_failure_is_ignored(self) -> None:
         # A failure from a barged-in/timed-out speak worker must not notify.

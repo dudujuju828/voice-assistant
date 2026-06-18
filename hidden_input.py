@@ -108,9 +108,13 @@ class HiddenInput(QWidget):
         _force_foreground(int(self.winId()))
         self._edit.setFocus(Qt.OtherFocusReason)
 
+    def peek_text(self) -> str:
+        """Return what's typed so far without consuming it (for polling)."""
+        return self._edit.text().strip()
+
     def read_and_clear(self) -> str:
         """Return whatever was typed, then reset and hide the box."""
-        text = self._edit.text().strip()
+        text = self.peek_text()
         self._edit.clear()
         self.hide()
         return text
@@ -158,15 +162,20 @@ class VisibleInput(QWidget):
         self._edit.setFocus(Qt.OtherFocusReason)
         self._edit.selectAll()
 
-    def read_and_clear(self) -> str:
-        """Return typed transcript, then reset and hide the box."""
+    def peek_text(self) -> str:
+        """Return the transcript typed so far, minus the placeholder, uncleared."""
         text = self._edit.text().strip()
-        self._edit.clear()
-        self.hide()
         if text == CAPTURE_PLACEHOLDER:
             return ""
         if text.startswith(CAPTURE_PLACEHOLDER):
             return text[len(CAPTURE_PLACEHOLDER) :].strip()
+        return text
+
+    def read_and_clear(self) -> str:
+        """Return typed transcript, then reset and hide the box."""
+        text = self.peek_text()
+        self._edit.clear()
+        self.hide()
         return text
 
     def _reposition(self) -> None:
