@@ -106,10 +106,10 @@ def _play_stream(resp: "requests.Response") -> bool:
     stream = sd.RawOutputStream(
         samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16"
     )
-    stream.start()
     leftover = b""
     wrote_audio = False
     try:
+        stream.start()
         for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
             if not chunk:
                 continue

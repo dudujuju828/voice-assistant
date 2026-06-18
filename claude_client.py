@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from typing import Optional
 
 from config import Config
@@ -72,8 +73,24 @@ class ClaudeClient:
                 "The 'claude' CLI was not found. Install it with "
                 "`npm i -g @anthropic-ai/claude-code`."
             )
+        # Track the in-flight subprocess so a shutdown can terminate it instead
+        # of leaving a QThread blocked on a slow turn (which crashes on exit).
+        self._proc_lock = threading.Lock()
+        self._active_proc: Optional[subprocess.Popen] = None
+        self._cancelled = False
 
     # --- public API ---------------------------------------------------------
+
+    def cancel(self) -> None:
+        """Terminate any in-flight turn. Used on shutdown; not reversible."""
+        with self._proc_lock:
+            self._cancelled = True
+            proc = self._active_proc
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.kill()
+            except OSError:
+                pass
 
     def ask(self, question: str, screenshot_path: Optional[str]) -> str:
         """Run one Claude turn and return the reply text.
