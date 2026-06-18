@@ -9,3 +9,10 @@ python-dotenv
 # is set to "local"; the ElevenLabs API path works without these.
 kokoro-onnx
 soundfile
+# For GPU acceleration, install onnxruntime-gpu instead of the onnxruntime that
+# kokoro-onnx pulls in, plus the CUDA 13 / cuDNN 9 runtime wheels (NVIDIA only):
+#   pip uninstall onnxruntime
+#   pip install onnxruntime-gpu
+#   pip install nvidia-cublas nvidia-cuda-runtime nvidia-cuda-nvrtc \
+#               nvidia-cufft nvidia-curand nvidia-cusparse nvidia-cudnn-cu13
+# tts_local.py auto-detects CUDA and falls back to CPU if it's unavailable.

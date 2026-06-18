@@ -32,3 +32,13 @@ Chosen local engine: **Kokoro** (in-app, runs on the RTX 4060 / CPU).
 
 Verified Kokoro synthesizes (af_heart, 24 kHz): cold load ~9.5s, first synth
 ~5.7s, faster after. Not played aloud during dev so as not to interrupt use.
+
+## GPU acceleration — DONE
+- onnxruntime-gpu 1.27 (needs CUDA 13 + cuDNN 9). Supplied via pip wheels:
+  nvidia-cublas / cuda-runtime / cuda-nvrtc / cufft / curand / cusparse (CUDA 13,
+  unsuffixed names) + nvidia-cudnn-cu13. No system CUDA toolkit; driver 581.80.
+- CUDA 13 wheels land under nvidia/cu13/bin/x86_64 (+ nvidia/cudnn/bin), so
+  _register_cuda_dll_dirs() recursively adds every nvidia dir containing a DLL.
+- tts_local._load_kokoro_gpu builds an InferenceSession with
+  [CUDA, CPU] providers via Kokoro.from_session; auto CPU fallback + logging.
+- Measured on RTX 4060: load 2.3s, synth ~0.3s warm (was ~5.7s CPU) — ~18x.

@@ -96,3 +96,24 @@ separate system install is required on Windows. The first reply after launch
 loads the model (a few seconds); later replies are faster. If the model files
 are missing, the app logs a warning and stays silent rather than crashing — so
 switch back to the ElevenLabs provider if you haven't downloaded them.
+
+#### GPU acceleration (NVIDIA)
+
+Local TTS runs on the GPU automatically when CUDA is available, which is far
+faster (on an RTX 4060, synthesis drops from ~5–6 s on CPU to ~0.3 s once warm).
+Set it up by replacing the CPU onnxruntime with the GPU build and adding the
+CUDA 13 / cuDNN 9 runtime wheels (no system CUDA toolkit needed — the wheels are
+self-contained):
+
+```bash
+pip uninstall onnxruntime
+pip install onnxruntime-gpu
+pip install nvidia-cublas nvidia-cuda-runtime nvidia-cuda-nvrtc \
+            nvidia-cufft nvidia-curand nvidia-cusparse nvidia-cudnn-cu13
+```
+
+`tts_local.py` registers the wheels' DLL directories, requests the CUDA
+execution provider, and falls back to CPU automatically if the GPU libraries
+aren't present (logged, never a crash). The log line `Kokoro running on GPU
+(CUDAExecutionProvider)` confirms the GPU is in use; check
+`voice-assistant.log`.

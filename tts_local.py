@@ -12,6 +12,7 @@ crash.
 """
 from __future__ import annotations
 
+import glob
 import logging
 import os
 import threading
@@ -28,6 +29,30 @@ _VOICES_PATH = os.path.join(_MODELS_DIR, "voices-v1.0.bin")
 
 _kokoro = None  # cached Kokoro instance (loaded lazily)
 _kokoro_lock = threading.Lock()
+
+
+def _register_cuda_dll_dirs() -> None:
+    """Add pip-installed NVIDIA CUDA/cuDNN DLL folders to the search path.
+
+    onnxruntime's CUDA provider needs the cuBLAS/cuDNN/etc. DLLs on the search
+    path to load. The nvidia pip wheels scatter them under site-packages/nvidia
+    in layouts that vary by CUDA version (e.g. cu13/bin/x86_64 for CUDA 13,
+    <component>/bin for older ones, cudnn/bin for cuDNN), so we register every
+    directory under nvidia/ that actually contains a DLL. Best-effort: if the
+    wheels aren't installed we silently stay on CPU.
+    """
+    if not hasattr(os, "add_dll_directory"):  # non-Windows
+        return
+    try:
+        import nvidia
+    except Exception:
+        return
+    for base in getattr(nvidia, "__path__", []):
+        for dll in glob.glob(os.path.join(base, "**", "*.dll"), recursive=True):
+            try:
+                os.add_dll_directory(os.path.dirname(dll))
+            except OSError:
+                pass
 
 
 def is_available() -> bool:
@@ -53,10 +78,43 @@ def _load_kokoro():
             EspeakWrapper.set_data_path(espeakng_loader.get_data_path())
         except Exception:
             pass
+
         from kokoro_onnx import Kokoro
 
-        _kokoro = Kokoro(_MODEL_PATH, _VOICES_PATH)
+        _kokoro = _load_kokoro_gpu() or Kokoro(_MODEL_PATH, _VOICES_PATH)
         return _kokoro
+
+
+def _load_kokoro_gpu():
+    """Try to build a CUDA-backed Kokoro; return None to fall back to CPU.
+
+    Requests the CUDA provider with CPU as a fallback in the same session, so
+    onnxruntime drops to CPU automatically if the GPU libraries can't load.
+    Logs which provider actually ran so GPU use can be confirmed in the log.
+    """
+    try:
+        import onnxruntime as ort
+        from kokoro_onnx import Kokoro
+
+        _register_cuda_dll_dirs()
+        if "CUDAExecutionProvider" not in ort.get_available_providers():
+            logger.info("Kokoro: CUDA provider unavailable; using CPU.")
+            return None
+
+        providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        sess = ort.InferenceSession(_MODEL_PATH, providers=providers)
+        active = sess.get_providers()
+        if "CUDAExecutionProvider" not in active:
+            # CUDA libs failed to load; onnxruntime fell back. Use CPU path.
+            logger.warning(
+                "Kokoro: CUDA libraries missing; running on CPU. Active: %s", active
+            )
+            return None
+        logger.info("Kokoro running on GPU (CUDAExecutionProvider).")
+        return Kokoro.from_session(sess, _VOICES_PATH)
+    except Exception as exc:
+        logger.warning("Kokoro GPU init failed (%s); falling back to CPU.", exc)
+        return None
 
 
 def speak_local(
