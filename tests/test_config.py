@@ -131,6 +131,19 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(config.tts_similarity_boost, 0.9)
             self.assertEqual(config.tts_speed, 1.1)
 
+    def test_include_screenshot_defaults_true_and_toggles(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertTrue(config.include_screenshot)
+
+            config.include_screenshot = False
+            self.assertFalse(config.include_screenshot)
+
+            # A non-boolean stored value falls back to the default.
+            config.set("capture.include_screenshot", "nope")
+            self.assertTrue(config.include_screenshot)
+
     def test_invalid_capture_method_falls_back_to_visible_input(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config = self._load_with_appdata(Path(tmp))

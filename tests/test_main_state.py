@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PySide6.QtCore import QObject
 
-from main import VoiceAssistant
+from main import AskWorker, VoiceAssistant
 
 
 class FakeOverlay:
@@ -300,6 +300,39 @@ class MainStateTests(unittest.TestCase):
 
         self.assertIsNone(assistant._speak_worker)
         self.assertNotIn("speaking", assistant._overlay.events)
+
+
+class _FakeAskClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, object]] = []
+
+    def ask(self, question: str, shot):
+        self.calls.append((question, shot))
+        return "reply"
+
+
+class AskWorkerScreenshotTests(unittest.TestCase):
+    def test_skips_capture_when_screenshot_disabled(self) -> None:
+        client = _FakeAskClient()
+        worker = AskWorker(
+            client, "what time is it", "\\\\.\\DISPLAY2", include_screenshot=False
+        )
+
+        with patch("main.capture.capture_monitor") as cap:
+            worker.run()
+
+        cap.assert_not_called()
+        self.assertEqual(client.calls, [("what time is it", None)])
+
+    def test_captures_when_screenshot_enabled(self) -> None:
+        client = _FakeAskClient()
+        worker = AskWorker(client, "q", "dev", include_screenshot=True)
+
+        with patch("main.capture.capture_monitor", return_value="C:/shot.png") as cap:
+            worker.run()
+
+        cap.assert_called_once_with("dev")
+        self.assertEqual(client.calls, [("q", "C:/shot.png")])
 
 
 if __name__ == "__main__":

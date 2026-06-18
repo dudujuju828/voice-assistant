@@ -48,7 +48,13 @@ SYSTEM_PROMPT = (
     "form.\n\n"
     "Talk like a helpful friend sitting next to the person. Be warm but "
     "professional, and use natural contractions like you'll, it's, and "
-    "don't.\n\n"
+    "don't."
+)
+
+# Appended only when a screenshot is actually attached to the turn. With the
+# screenshot toggle off we must not tell Claude it has an image, or it will
+# reference a screen it never received.
+SCREENSHOT_PROMPT = (
     "With each question you also get a screenshot of the person's screen. Use "
     "it to ground your answer, and point to what you see in plain language, "
     "like the button near the top right, or the menu on the left side. If you "
@@ -121,6 +127,9 @@ class ClaudeClient:
         session_id: Optional[str],
         add_dir: Optional[str],
     ) -> str:
+        system_prompt = SYSTEM_PROMPT
+        if add_dir:  # a screenshot is attached for this turn
+            system_prompt = f"{SYSTEM_PROMPT}\n\n{SCREENSHOT_PROMPT}"
         cmd = [
             self._claude_path,
             "-p",
@@ -130,7 +139,7 @@ class ClaudeClient:
             "--output-format",
             "json",
             "--append-system-prompt",
-            SYSTEM_PROMPT,
+            system_prompt,
         ]
         if self._config.claude_effort != "default":
             cmd += ["--effort", self._config.claude_effort]

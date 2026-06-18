@@ -37,8 +37,10 @@ python main.py
 4. The only visible cue is a small dot in the bottom-right corner: red while
    recording, amber while thinking, green while speaking. It's gone when idle.
 5. Right-click the tray icon for **Settings** (capture monitor, capture method,
-   Claude model/effort/timeout, voice, and TTS quality/timeout),
-   **Reset Claude Session**, **Pause Hotkey**, or **Quit**.
+   the **send-screenshot toggle**, Claude model/effort/timeout, voice, and TTS
+   quality/timeout), **Reset Claude Session**, **Pause Hotkey**, or **Quit**.
+   Turn the screenshot toggle off to use it as a plain voice assistant — no
+   screen capture, and no image is sent to Claude.
 
 ### Capture methods
 

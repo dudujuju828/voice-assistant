@@ -56,18 +56,27 @@ class AskWorker(QThread):
     succeeded = Signal(str)
     failed = Signal(str)
 
-    def __init__(self, client: ClaudeClient, question: str, device: str | None) -> None:
+    def __init__(
+        self,
+        client: ClaudeClient,
+        question: str,
+        device: str | None,
+        include_screenshot: bool,
+    ) -> None:
         super().__init__()
         self._client = client
         self._question = question
         self._device = device
+        self._include_screenshot = include_screenshot
 
     def run(self) -> None:
-        try:
-            shot = capture.capture_monitor(self._device)
-        except Exception as exc:
-            self.failed.emit(f"Screenshot failed: {exc}")
-            return
+        shot = None
+        if self._include_screenshot:
+            try:
+                shot = capture.capture_monitor(self._device)
+            except Exception as exc:
+                self.failed.emit(f"Screenshot failed: {exc}")
+                return
         try:
             reply = self._client.ask(self._question, shot)
         except ClaudeError as exc:
@@ -325,7 +334,10 @@ class VoiceAssistant(QObject):
             self._fail_current_turn("Claude is not available.")
             return
         self._ask_worker = AskWorker(
-            self._client, text, self._config.capture_monitor_device
+            self._client,
+            text,
+            self._config.capture_monitor_device,
+            self._config.include_screenshot,
         )
         self._ask_worker.succeeded.connect(self._on_reply)
         self._ask_worker.failed.connect(self._on_ask_failed)

@@ -45,6 +45,7 @@ HOTKEY_TRIGGER_ALIASES = {
 }
 DEFAULT_CAPTURE_METHOD = "visible_input"
 CAPTURE_METHODS = {"clipboard", "hidden_input", "visible_input"}
+DEFAULT_INCLUDE_SCREENSHOT = True
 CLAUDE_EFFORT_LEVELS = {"default", "low", "medium", "high", "xhigh", "max"}
 DEFAULT_CAPTURE_DELAY_MS = 500
 MAX_CAPTURE_DELAY_MS = 10_000
@@ -81,6 +82,9 @@ def _default_config() -> dict[str, Any]:
             "method": DEFAULT_CAPTURE_METHOD,
             "delay_ms": DEFAULT_CAPTURE_DELAY_MS,
             "legacy_default_migrated": True,
+            # When False, run as a plain voice assistant: no screen capture and
+            # no screenshot is sent to Claude.
+            "include_screenshot": DEFAULT_INCLUDE_SCREENSHOT,
         },
         "elevenlabs": {
             "voice_id": DEFAULT_VOICE_ID,
@@ -513,6 +517,16 @@ class Config:
         if value not in CAPTURE_METHODS:
             raise ValueError(f"Unknown capture method: {value!r}")
         self.set("capture.method", value)
+
+    @property
+    def include_screenshot(self) -> bool:
+        """Whether to capture the screen and send a screenshot to Claude."""
+        value = self.get("capture.include_screenshot", DEFAULT_INCLUDE_SCREENSHOT)
+        return value if isinstance(value, bool) else DEFAULT_INCLUDE_SCREENSHOT
+
+    @include_screenshot.setter
+    def include_screenshot(self, value: bool) -> None:
+        self.set("capture.include_screenshot", bool(value))
 
     @property
     def capture_delay_ms(self) -> int:

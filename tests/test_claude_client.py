@@ -5,7 +5,12 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from claude_client import ClaudeClient, ClaudeError
+from claude_client import (
+    ClaudeClient,
+    ClaudeError,
+    SCREENSHOT_PROMPT,
+    SYSTEM_PROMPT,
+)
 
 
 class FakeConfig:
@@ -119,6 +124,33 @@ class ClaudeClientParseTests(unittest.TestCase):
         self.assertIn("--effort", command)
         effort_index = command.index("--effort")
         self.assertEqual(command[effort_index + 1], "high")
+
+    def test_screenshot_prompt_appended_only_with_screenshot(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        completed = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps({"result": "ok", "session_id": "s"}),
+        )
+
+        def system_prompt(run) -> str:
+            command = run.call_args.args[0]
+            return command[command.index("--append-system-prompt") + 1]
+
+        # add_dir set -> a screenshot is attached -> include the screenshot guidance.
+        with patch("claude_client.subprocess.run", return_value=completed) as run:
+            client._run_turn("prompt", None, "C:/shots")
+        with_shot = system_prompt(run)
+        self.assertIn(SYSTEM_PROMPT, with_shot)
+        self.assertIn(SCREENSHOT_PROMPT, with_shot)
+
+        # No screenshot -> base prompt only, no mention of an image.
+        with patch("claude_client.subprocess.run", return_value=completed) as run:
+            client._run_turn("prompt", None, None)
+        without_shot = system_prompt(run)
+        self.assertIn(SYSTEM_PROMPT, without_shot)
+        self.assertNotIn(SCREENSHOT_PROMPT, without_shot)
 
     def test_ask_retries_and_clears_stale_session(self) -> None:
         client = self._client()

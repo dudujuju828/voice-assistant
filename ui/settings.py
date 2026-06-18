@@ -6,6 +6,7 @@ import os
 import requests
 from dotenv import load_dotenv
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -143,6 +144,16 @@ class SettingsDialog(QDialog):
             self._monitor_combo.addItem("No monitors detected", None)
         form.addRow("Capture monitor:", self._monitor_combo)
 
+        # --- screenshot toggle ---
+        self._screenshot_check = QCheckBox(
+            "Send a screenshot of your screen with each question", self
+        )
+        self._screenshot_check.setChecked(config.include_screenshot)
+        self._screenshot_check.setToolTip(
+            "Turn off to use it as a plain voice assistant (no screen capture)."
+        )
+        form.addRow("Screenshot:", self._screenshot_check)
+
         # --- transcript capture method ---
         self._capture_method_combo = QComboBox(self)
         self._capture_method_combo.addItem("Clipboard (Wispr copy)", "clipboard")
@@ -268,6 +279,7 @@ class SettingsDialog(QDialog):
         if capture_method:
             updates["capture.method"] = capture_method
         updates["capture.delay_ms"] = self._capture_delay_input.value()
+        updates["capture.include_screenshot"] = self._screenshot_check.isChecked()
         claude_model = _combo_value(self._claude_model_combo)
         if claude_model:
             updates["claude.model"] = claude_model
