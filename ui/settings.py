@@ -28,11 +28,14 @@ from config import (
 load_dotenv()
 
 # Hardcoded fallback so the picker works offline / without an API key.
+# These are current premade voices (usable on the free plan); legacy IDs like
+# Rachel's 21m00... are now treated as library voices and 402 on free accounts.
 _FALLBACK_VOICES = [
-    ("Rachel", "21m00Tcm4TlvDq8ikWAM"),
-    ("Adam", "pNInz6obpgDQGcFmaJgB"),
-    ("Antoni", "ErXwobaYiN019PkySvjV"),
-    ("Bella", "EXAVITQu4vr4xnSDxMaL"),
+    ("Lily", "pFZP5JQG7iQjIQuC4Bku"),
+    ("Sarah", "EXAVITQu4vr4xnSDxMaL"),
+    ("George", "JBFqnCBsd6RMkjVDRZzb"),
+    ("Bella", "hpp4J3VqNfWAUOO0d1Us"),
+    ("Brian", "nPczCjzI2devNBz1zQrb"),
 ]
 
 _CLAUDE_MODELS = [

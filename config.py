@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # --- defaults ---------------------------------------------------------------
 
-DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel
+DEFAULT_VOICE_ID = "pFZP5JQG7iQjIQuC4Bku"  # Lily — a premade voice usable on the free plan
 DEFAULT_TTS_MODEL = "eleven_flash_v2_5"
 DEFAULT_CLAUDE_MODEL = "opus"
 DEFAULT_CLAUDE_EFFORT = "default"
