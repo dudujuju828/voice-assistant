@@ -10,6 +10,7 @@ from __future__ import annotations
 import ctypes
 import logging
 import sys
+import threading
 
 # DPI awareness MUST be set before QApplication so mss bounds == physical px.
 if sys.platform == "win32":
@@ -85,6 +86,7 @@ class SpeakWorker(QThread):
         similarity_boost: float,
         speed: float,
         request_timeout: float,
+        cancel: threading.Event,
     ) -> None:
         super().__init__()
         self._text = text
@@ -94,6 +96,7 @@ class SpeakWorker(QThread):
         self._similarity_boost = similarity_boost
         self._speed = speed
         self._request_timeout = request_timeout
+        self._cancel = cancel
 
     def run(self) -> None:
         try:
@@ -105,8 +108,9 @@ class SpeakWorker(QThread):
                 self._similarity_boost,
                 self._speed,
                 self._request_timeout,
+                self._cancel,
             )
-            if not played:
+            if not played and not self._cancel.is_set():
                 self.failed.emit(
                     "TTS playback failed. Check ElevenLabs, audio, and logs."
                 )
@@ -131,6 +135,8 @@ class VoiceAssistant(QObject):
         self._clipboard_text_before_capture: str | None = None
         self._ask_worker: AskWorker | None = None
         self._speak_worker: SpeakWorker | None = None
+        # Set to interrupt the current TTS playback when the user barges in.
+        self._cancel_event: threading.Event | None = None
         # Strong refs to every live worker. A finished worker is removed and
         # deleteLater'd; a *hung* worker stays here so it is never garbage
         # collected mid-run (which crashes with "QThread destroyed while still
@@ -195,8 +201,12 @@ class VoiceAssistant(QObject):
             )
 
     def _on_press(self) -> None:
-        """Hotkey down: Wispr starts recording; we just show the dot."""
-        if self._busy or self._recording:
+        """Hotkey down: Wispr starts recording; we just show the dot.
+
+        If a turn is already in flight (thinking or speaking), this is a
+        barge-in: interrupt it and start recording a fresh question.
+        """
+        if self._recording:
             return
         if self._client is None:
             self._tray.notify(
@@ -204,6 +214,8 @@ class VoiceAssistant(QObject):
                 "Install the Claude CLI: npm i -g @anthropic-ai/claude-code",
             )
             return
+        if self._busy:
+            self._barge_in()
         self._recording = True
         self._active_capture_method = self._config.capture_method
         try:
@@ -292,6 +304,7 @@ class VoiceAssistant(QObject):
         if self.sender() is not self._ask_worker:
             return  # Stale worker from a timed-out turn; ignore.
         self._overlay.show_speaking()
+        self._cancel_event = threading.Event()
         self._speak_worker = SpeakWorker(
             reply,
             self._config.voice_id,
@@ -300,6 +313,7 @@ class VoiceAssistant(QObject):
             self._config.tts_similarity_boost,
             self._config.tts_speed,
             self._config.tts_request_timeout_seconds,
+            self._cancel_event,
         )
         self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)
@@ -312,6 +326,8 @@ class VoiceAssistant(QObject):
         self._return_to_idle()
 
     def _on_speech_failed(self, message: str) -> None:
+        if self.sender() is not self._speak_worker:
+            return  # Stale worker from a barged-in/timed-out turn; ignore.
         logger.warning(message)
         self._tray.notify("Voice Assistant", message)
 
@@ -356,6 +372,24 @@ class VoiceAssistant(QObject):
         )
         self._reset_state()
         self._overlay.hide()
+
+    def _barge_in(self) -> None:
+        """Interrupt the in-flight turn so a new recording can start.
+
+        Signals the current TTS playback to stop and detaches the ask/speak
+        workers. The workers keep running on their threads until they unwind,
+        but their results and finish signals are ignored: every slot guards on
+        ``self.sender() is self._ask_worker`` / ``self._speak_worker``, and we
+        clear both here so the stale callbacks no-op instead of dragging the
+        app back to idle on top of the new recording.
+        """
+        logger.info("Barge-in: interrupting the current turn.")
+        if self._cancel_event is not None:
+            self._cancel_event.set()
+        self._ask_worker = None
+        self._speak_worker = None
+        self._stop_watchdog()
+        self._busy = False
 
     def _reset_state(self) -> None:
         self._recording = False

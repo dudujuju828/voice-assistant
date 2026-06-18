@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -40,6 +41,14 @@ class FakeTray:
 class FailingCaptureInput:
     def focus_for_capture(self) -> None:
         raise RuntimeError("focus failed")
+
+
+class RecordingCaptureInput:
+    def __init__(self) -> None:
+        self.focused = False
+
+    def focus_for_capture(self) -> None:
+        self.focused = True
 
 
 class FakeClipboard:
@@ -152,6 +161,40 @@ class MainStateTests(unittest.TestCase):
         # Nothing to recover: no notification, no overlay change.
         self.assertEqual(assistant._tray.notifications, [])
         self.assertEqual(assistant._overlay.events, [])
+
+    def test_barge_in_interrupts_turn_and_starts_recording(self) -> None:
+        # Pressing the hotkey mid-turn must cancel the live playback, detach the
+        # in-flight workers, and begin a fresh recording.
+        assistant = self._assistant()
+        assistant._busy = True
+        assistant._recording = False
+        assistant._watchdog = None  # _stop_watchdog tolerates this
+        cancel = threading.Event()
+        assistant._cancel_event = cancel
+        assistant._ask_worker = object()
+        assistant._speak_worker = object()
+        assistant._visible_input = RecordingCaptureInput()
+
+        with patch("main.logger.info"):
+            assistant._on_press()
+
+        self.assertTrue(cancel.is_set())
+        self.assertIsNone(assistant._ask_worker)
+        self.assertIsNone(assistant._speak_worker)
+        self.assertTrue(assistant._recording)
+        self.assertFalse(assistant._busy)
+        self.assertTrue(assistant._visible_input.focused)
+        self.assertIn("recording", assistant._overlay.events)
+
+    def test_stale_speech_failure_is_ignored(self) -> None:
+        # A failure from a barged-in/timed-out speak worker must not notify.
+        assistant = self._assistant()
+        QObject.__init__(assistant)  # so self.sender() is usable
+        assistant._speak_worker = object()  # current worker is something else
+
+        assistant._on_speech_failed("late failure")  # sender() is None
+
+        self.assertEqual(assistant._tray.notifications, [])
 
     def test_stale_reply_is_ignored(self) -> None:
         # A reply from a timed-out (non-current) worker must not start playback.

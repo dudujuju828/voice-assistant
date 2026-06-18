@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from typing import Optional
 
 import requests
@@ -40,12 +41,16 @@ def speak(
     similarity_boost: float = 0.75,
     speed: float = 1.0,
     request_timeout: float = REQUEST_TIMEOUT,
+    cancel: Optional[threading.Event] = None,
 ) -> bool:
     """Synthesize ``text`` and play it back, blocking until playback ends.
 
     Failures are swallowed (logged) so a TTS outage degrades to silence rather
     than crashing the pipeline. Returns True only when playback was attempted
     successfully. Run this off the UI thread (see main.SpeakWorker).
+
+    Pass ``cancel`` (a ``threading.Event``) to support barge-in: when it is set
+    mid-playback the stream is aborted immediately and we stop reading chunks.
     """
     text = (text or "").strip()
     if not text:
@@ -90,7 +95,7 @@ def speak(
                 detail = resp.text[:200] if resp.content else ""
                 logger.warning("ElevenLabs error %s: %s", resp.status_code, detail)
                 return False
-            played = _play_stream(resp)
+            played = _play_stream(resp, cancel)
             if not played:
                 logger.warning("ElevenLabs stream contained no playable audio.")
             return played
@@ -101,8 +106,14 @@ def speak(
     return False
 
 
-def _play_stream(resp: "requests.Response") -> bool:
-    """Feed streamed PCM bytes into a sounddevice output stream."""
+def _play_stream(
+    resp: "requests.Response", cancel: Optional[threading.Event] = None
+) -> bool:
+    """Feed streamed PCM bytes into a sounddevice output stream.
+
+    When ``cancel`` is set (barge-in), stop reading and abort the stream so
+    buffered audio is dropped immediately rather than played to the end.
+    """
     stream = sd.RawOutputStream(
         samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16"
     )
@@ -111,6 +122,8 @@ def _play_stream(resp: "requests.Response") -> bool:
     wrote_audio = False
     try:
         for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
+            if cancel is not None and cancel.is_set():
+                break
             if not chunk:
                 continue
             data = leftover + chunk
@@ -121,6 +134,12 @@ def _play_stream(resp: "requests.Response") -> bool:
                 wrote_audio = True
             leftover = data[usable:]
     finally:
-        stream.stop()
+        # On barge-in, abort() drops the buffered audio for an instant cut-off;
+        # otherwise stop() lets the tail of the reply finish cleanly.
+        abort = getattr(stream, "abort", None)
+        if cancel is not None and cancel.is_set() and callable(abort):
+            abort()
+        else:
+            stream.stop()
         stream.close()
     return wrote_audio
