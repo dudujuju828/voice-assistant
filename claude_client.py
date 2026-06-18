@@ -9,6 +9,7 @@ import json
 import os
 import shutil
 import subprocess
+import threading
 from typing import Optional
 
 from config import Config
@@ -72,8 +73,17 @@ class ClaudeClient:
                 "The 'claude' CLI was not found. Install it with "
                 "`npm i -g @anthropic-ai/claude-code`."
             )
+        self._proc_lock = threading.Lock()
+        self._cancelled = False
+        self._active_proc: subprocess.Popen | None = None
 
     # --- public API ---------------------------------------------------------
+
+    def cancel(self) -> None:
+        with self._proc_lock:
+            self._cancelled = True
+            if self._active_proc is not None:
+                self._active_proc.kill()
 
     def ask(self, question: str, screenshot_path: Optional[str]) -> str:
         """Run one Claude turn and return the reply text.
@@ -135,27 +145,46 @@ class ClaudeClient:
 
         timeout_seconds = self._config.claude_timeout_seconds
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                timeout=timeout_seconds,
                 shell=False,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise ClaudeError(
-                f"Claude timed out after {timeout_seconds} seconds."
-            ) from exc
         except OSError as exc:
             raise ClaudeError(f"Failed to launch Claude: {exc}") from exc
 
-        stderr = (proc.stderr or "").strip()
-        if proc.returncode != 0 or "No conversation found" in stderr:
-            raise ClaudeError(stderr or f"Claude exited with code {proc.returncode}.")
+        with self._proc_lock:
+            if self._cancelled:
+                proc.kill()
+            self._active_proc = proc
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            proc.kill()
+            proc.communicate()
+            raise ClaudeError(
+                f"Claude timed out after {timeout_seconds} seconds."
+            ) from exc
+        finally:
+            with self._proc_lock:
+                self._active_proc = None
 
-        return self._parse_result(proc.stdout)
+        stderr = (stderr or "").strip()
+        if proc.returncode != 0 or "No conversation found" in stderr:
+            # The CLI usually reports failures on stderr, but sometimes only in
+            # the JSON on stdout. Fold a trimmed stdout into the message so the
+            # session-error detection (and fresh-session retry) still fires.
+            detail = stderr
+            snippet = (stdout or "").strip()[:500]
+            if snippet and snippet not in detail:
+                detail = f"{detail} {snippet}".strip()
+            raise ClaudeError(detail or f"Claude exited with code {proc.returncode}.")
+
+        return self._parse_result(stdout)
 
     def _parse_result(self, stdout: str) -> str:
         stdout = (stdout or "").strip()

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from claude_client import ClaudeClient, ClaudeError
@@ -16,10 +16,32 @@ class FakeConfig:
         self.claude_timeout_seconds = 45
 
 
+class FakePopen:
+    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+        self.timeout = None
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        self.timeout = timeout
+        return self._stdout, self._stderr
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self) -> None:
+        self.killed = True
+
+
 class ClaudeClientParseTests(unittest.TestCase):
     def _client(self) -> ClaudeClient:
         client = object.__new__(ClaudeClient)
         client._config = FakeConfig()
+        client._proc_lock = threading.Lock()
+        client._active_proc = None
+        client._cancelled = False
         return client
 
     def test_parse_result_returns_text_and_persists_session(self) -> None:
