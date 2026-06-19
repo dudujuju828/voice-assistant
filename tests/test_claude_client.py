@@ -19,6 +19,7 @@ class FakeConfig:
         self.claude_model = "opus"
         self.claude_effort = "default"
         self.claude_timeout_seconds = 45
+        self.browser_timeout_seconds = 300
 
 
 class FakePopen:
@@ -152,6 +153,32 @@ class ClaudeClientParseTests(unittest.TestCase):
 
         command = popen.call_args.args[0]
         self.assertIn("--dangerously-skip-permissions", command)
+
+    def test_browse_turn_attaches_mcp_and_uses_browser_timeout(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "s"}))
+
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
+            client._run_turn("prompt", None, None, "C:/mcp.json")
+
+        command = popen.call_args.args[0]
+        self.assertIn("--mcp-config", command)
+        self.assertEqual(command[command.index("--mcp-config") + 1], "C:/mcp.json")
+        # Browse turns use the longer browser timeout on communicate().
+        self.assertEqual(fake.timeout, 300)
+
+    def test_normal_turn_has_no_mcp_config(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "s"}))
+
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
+            client._run_turn("prompt", None, None)
+
+        command = popen.call_args.args[0]
+        self.assertNotIn("--mcp-config", command)
+        self.assertEqual(fake.timeout, 45)
 
     def test_screenshot_prompt_appended_only_with_screenshot(self) -> None:
         client = self._client()

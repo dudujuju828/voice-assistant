@@ -25,3 +25,7 @@ soundfile
 #   pip install chatterbox-tts
 # tts_chatterbox.py auto-detects CUDA (torch.cuda) and falls back to CPU. The
 # ~1 GB model downloads from Hugging Face on first use.
+
+# Optional: agentic browsing (Claude drives a Chrome window). No pip deps — it
+# needs Node.js on PATH (the Playwright MCP server runs via `npx`) and Google
+# Chrome installed. Enable it in Settings; see README "Agentic browsing".

@@ -71,6 +71,14 @@ DEFAULT_TTS_SIMILARITY_BOOST = 0.75
 DEFAULT_TTS_SPEED = 1.0
 MIN_TTS_SPEED = 0.7
 MAX_TTS_SPEED = 1.2
+# Agentic browsing (Claude drives a Playwright-controlled Chrome window). Off by
+# default; headed so the user can watch. The monitor device picks which display
+# the window opens on (None = a secondary display if there is one).
+DEFAULT_BROWSER_ENABLED = False
+DEFAULT_BROWSER_HEADLESS = False
+DEFAULT_BROWSER_TIMEOUT_SECONDS = 300  # browse turns run longer than normal ones
+MIN_BROWSER_TIMEOUT_SECONDS = 30
+MAX_BROWSER_TIMEOUT_SECONDS = 900
 LEGACY_DEFAULT_HOTKEYS = [
     (["ctrl", "shift"], "Space"),
 ]
@@ -115,6 +123,13 @@ def _default_config() -> dict[str, Any]:
             "provider": DEFAULT_TTS_PROVIDER,
             "local_voice": DEFAULT_LOCAL_VOICE,
             "voice_sample": DEFAULT_VOICE_SAMPLE,
+        },
+        "browser": {
+            "enabled": DEFAULT_BROWSER_ENABLED,
+            "headless": DEFAULT_BROWSER_HEADLESS,
+            # Which display the browser window opens on (None = secondary).
+            "monitor_device": None,
+            "timeout_seconds": DEFAULT_BROWSER_TIMEOUT_SECONDS,
         },
     }
 
@@ -447,6 +462,61 @@ class Config:
         self.set(
             "tts.voice_sample",
             value.strip() if isinstance(value, str) else DEFAULT_VOICE_SAMPLE,
+        )
+
+    @property
+    def browser_enabled(self) -> bool:
+        """Whether agentic browsing (Claude-driven Chrome) is allowed."""
+        value = self.get("browser.enabled", DEFAULT_BROWSER_ENABLED)
+        return value if isinstance(value, bool) else DEFAULT_BROWSER_ENABLED
+
+    @browser_enabled.setter
+    def browser_enabled(self, value: bool) -> None:
+        self.set("browser.enabled", bool(value))
+
+    @property
+    def browser_headless(self) -> bool:
+        value = self.get("browser.headless", DEFAULT_BROWSER_HEADLESS)
+        return value if isinstance(value, bool) else DEFAULT_BROWSER_HEADLESS
+
+    @browser_headless.setter
+    def browser_headless(self, value: bool) -> None:
+        self.set("browser.headless", bool(value))
+
+    @property
+    def browser_monitor_device(self) -> str | None:
+        value = self.get("browser.monitor_device")
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
+
+    @browser_monitor_device.setter
+    def browser_monitor_device(self, value: str | None) -> None:
+        if isinstance(value, str):
+            value = value.strip() or None
+        else:
+            value = None
+        self.set("browser.monitor_device", value)
+
+    @property
+    def browser_timeout_seconds(self) -> int:
+        return _bounded_int(
+            self.get("browser.timeout_seconds"),
+            DEFAULT_BROWSER_TIMEOUT_SECONDS,
+            MIN_BROWSER_TIMEOUT_SECONDS,
+            MAX_BROWSER_TIMEOUT_SECONDS,
+        )
+
+    @browser_timeout_seconds.setter
+    def browser_timeout_seconds(self, value: int) -> None:
+        self.set(
+            "browser.timeout_seconds",
+            _bounded_int(
+                value,
+                DEFAULT_BROWSER_TIMEOUT_SECONDS,
+                MIN_BROWSER_TIMEOUT_SECONDS,
+                MAX_BROWSER_TIMEOUT_SECONDS,
+            ),
         )
 
     @property

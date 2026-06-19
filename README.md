@@ -96,6 +96,37 @@ ElevenLabs API and the local Kokoro/Chatterbox engines, with a local-voice
 picker and a voice-sample field for Chatterbox cloning — see
 [Local TTS](#local-tts-offline).
 
+### Agentic browsing (Claude-driven Chrome)
+
+The assistant can open a real Chrome window and **browse the web for you** —
+search, open pages, click, and read — while you watch it happen. It's powered by
+[Playwright MCP](https://github.com/microsoft/playwright-mcp): the app runs a
+local MCP server that Claude connects to and drives with browser tools.
+
+**Prerequisites:** [Node.js](https://nodejs.org) on PATH (the server runs via
+`npx`) and Google Chrome installed. Nothing to `pip install`.
+
+**Enable it** in Settings → *Agentic browsing*. You can also choose:
+- **Browser window** — headed (default, so you can watch) or hidden.
+- **Browser monitor** — which display the window opens on (*Auto* picks a
+  secondary screen so it sits next to you).
+- **Browse turn timeout** — browsing turns run longer than a normal reply.
+
+**Use it by voice.** Normal turns are untouched and stay snappy — browsing only
+kicks in when you ask for it. Say something like *"open the browser and find the
+cppreference page for lock_guard"* or *"search the web for …"* and it opens
+Chrome on your chosen monitor and navigates there, then gives a short spoken
+summary. The window **stays open** so you can read it, and you stay in browsing
+mode for follow-ups like *"scroll down"* or *"click the first result"*. Say
+*"close the browser"* or *"stop browsing"* to end it. The trigger phrases live in
+[`browser_mcp.py`](browser_mcp.py).
+
+The first browse is slow (it downloads the MCP server and launches Chrome);
+later ones reuse the same window. The browser shares a persistent profile, so
+logins stick. Because the assistant runs Claude with skip-permissions (see the
+warning above), a browsing agent can click and submit forms on your behalf —
+keep it to sites you trust.
+
 ### Local TTS (offline)
 
 You can run text-to-speech locally with [Kokoro](https://github.com/thewh1teagle/kokoro-onnx)

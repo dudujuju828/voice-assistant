@@ -62,6 +62,17 @@ SCREENSHOT_PROMPT = (
     "are not sure what they mean, ask one quick question to clarify."
 )
 
+# Appended only on a browsing turn (when the Playwright MCP browser is attached).
+BROWSER_PROMPT = (
+    "You can control a web browser that is open on the person's screen using "
+    "your browser tools. When they ask you to look something up, search, open a "
+    "page, or navigate, actually do it in the browser so they can watch. Then "
+    "give a short spoken summary, two or three sentences, of what you found or "
+    "did. Never read out long lists, web addresses, or raw page text; summarize "
+    "and offer to go deeper. The browser stays open for them to read, so you do "
+    "not need to close it."
+)
+
 
 class ClaudeNotInstalledError(RuntimeError):
     """Raised when the `claude` CLI cannot be found on PATH."""
@@ -97,12 +108,18 @@ class ClaudeClient:
             if self._active_proc is not None:
                 self._active_proc.kill()
 
-    def ask(self, question: str, screenshot_path: Optional[str]) -> str:
+    def ask(
+        self,
+        question: str,
+        screenshot_path: Optional[str],
+        mcp_config_path: Optional[str] = None,
+    ) -> str:
         """Run one Claude turn and return the reply text.
 
         Resumes the persistent session when one exists. On a session error
         (exit code != 0 or "No conversation found"), clears the stored
-        session_id and retries once as a fresh conversation.
+        session_id and retries once as a fresh conversation. ``mcp_config_path``,
+        when given, attaches the browser MCP server so this is a browsing turn.
         """
         prompt = self._build_prompt(question, screenshot_path)
         add_dir = (
@@ -113,13 +130,13 @@ class ClaudeClient:
         session_id = self._config.session_id
 
         try:
-            return self._run_turn(prompt, session_id, add_dir)
+            return self._run_turn(prompt, session_id, add_dir, mcp_config_path)
         except ClaudeError as exc:
             if session_id is None or not _is_session_error(str(exc)):
                 raise
             # Stale/expired session — start fresh once.
             self._config.session_id = None
-            return self._run_turn(prompt, None, add_dir)
+            return self._run_turn(prompt, None, add_dir, mcp_config_path)
 
     # --- internals ----------------------------------------------------------
 
@@ -136,10 +153,13 @@ class ClaudeClient:
         prompt: str,
         session_id: Optional[str],
         add_dir: Optional[str],
+        mcp_config_path: Optional[str] = None,
     ) -> str:
         system_prompt = SYSTEM_PROMPT
         if add_dir:  # a screenshot is attached for this turn
-            system_prompt = f"{SYSTEM_PROMPT}\n\n{SCREENSHOT_PROMPT}"
+            system_prompt = f"{system_prompt}\n\n{SCREENSHOT_PROMPT}"
+        if mcp_config_path:  # a browser is attached for this turn
+            system_prompt = f"{system_prompt}\n\n{BROWSER_PROMPT}"
         cmd = [
             self._claude_path,
             "-p",
@@ -160,10 +180,18 @@ class ClaudeClient:
             cmd += ["--effort", self._config.claude_effort]
         if add_dir:
             cmd += ["--add-dir", add_dir]
+        if mcp_config_path:
+            cmd += ["--mcp-config", mcp_config_path]
         if session_id:
             cmd += ["--resume", session_id]
 
-        timeout_seconds = self._config.claude_timeout_seconds
+        # Browsing turns navigate pages and run many tool round-trips, so they
+        # get a longer budget than a normal spoken reply.
+        timeout_seconds = (
+            self._config.browser_timeout_seconds
+            if mcp_config_path
+            else self._config.claude_timeout_seconds
+        )
         try:
             proc = subprocess.Popen(
                 cmd,

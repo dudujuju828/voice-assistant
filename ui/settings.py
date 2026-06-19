@@ -25,8 +25,10 @@ from PySide6.QtWidgets import (
 
 import monitors
 from config import (
+    MAX_BROWSER_TIMEOUT_SECONDS,
     MAX_CLAUDE_TIMEOUT_SECONDS,
     MAX_TTS_REQUEST_TIMEOUT_SECONDS,
+    MIN_BROWSER_TIMEOUT_SECONDS,
     MIN_CLAUDE_TIMEOUT_SECONDS,
     MIN_TTS_REQUEST_TIMEOUT_SECONDS,
 )
@@ -312,6 +314,43 @@ class SettingsDialog(QDialog):
         self._speed_input = _number_input(config.tts_speed, 0.7, 1.2, 0.05)
         form.addRow("Voice speed:", self._speed_input)
 
+        # --- agentic browsing (Claude-driven Chrome) ---
+        self._browser_enabled_check = QCheckBox(
+            "Let the assistant open and drive a web browser", self
+        )
+        self._browser_enabled_check.setChecked(config.browser_enabled)
+        self._browser_enabled_check.setToolTip(
+            "When on, asking it to search or open a page launches Chrome and "
+            "Claude navigates it on your screen. Needs Node.js + Chrome."
+        )
+        form.addRow("Agentic browsing:", self._browser_enabled_check)
+
+        self._browser_headless_check = QCheckBox("Run hidden (no window)", self)
+        self._browser_headless_check.setChecked(config.browser_headless)
+        self._browser_headless_check.setToolTip(
+            "Off (default) shows the browser so you can watch it navigate."
+        )
+        form.addRow("Browser window:", self._browser_headless_check)
+
+        self._browser_monitor_combo = QComboBox(self)
+        self._browser_monitor_combo.addItem("Auto (secondary screen)", None)
+        current_browser_device = config.browser_monitor_device
+        for mon in self._monitors:
+            label = mon["name"] + (" (Primary)" if mon["is_primary"] else "")
+            self._browser_monitor_combo.addItem(label, mon["device"])
+        _set_combo_value(self._browser_monitor_combo, current_browser_device)
+        form.addRow("Browser monitor:", self._browser_monitor_combo)
+
+        self._browser_timeout_input = QSpinBox(self)
+        self._browser_timeout_input.setRange(
+            MIN_BROWSER_TIMEOUT_SECONDS,
+            MAX_BROWSER_TIMEOUT_SECONDS,
+        )
+        self._browser_timeout_input.setSingleStep(30)
+        self._browser_timeout_input.setSuffix(" s")
+        self._browser_timeout_input.setValue(config.browser_timeout_seconds)
+        form.addRow("Browse turn timeout:", self._browser_timeout_input)
+
         # --- info ---
         info = QLabel("Settings are saved to %APPDATA%\\VoiceAssistant.", self)
         info.setStyleSheet("color: gray; font-size: 11px;")
@@ -388,6 +427,10 @@ class SettingsDialog(QDialog):
         updates["elevenlabs.stability"] = self._stability_input.value()
         updates["elevenlabs.similarity_boost"] = self._similarity_input.value()
         updates["elevenlabs.speed"] = self._speed_input.value()
+        updates["browser.enabled"] = self._browser_enabled_check.isChecked()
+        updates["browser.headless"] = self._browser_headless_check.isChecked()
+        updates["browser.monitor_device"] = self._browser_monitor_combo.currentData()
+        updates["browser.timeout_seconds"] = self._browser_timeout_input.value()
         try:
             self._config.set_many(updates)
         except Exception as exc:

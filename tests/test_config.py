@@ -9,6 +9,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from config import (
+    DEFAULT_BROWSER_TIMEOUT_SECONDS,
+    MIN_BROWSER_TIMEOUT_SECONDS,
+    MAX_BROWSER_TIMEOUT_SECONDS,
     DEFAULT_CAPTURE_DELAY_MS,
     DEFAULT_CAPTURE_METHOD,
     DEFAULT_CLAUDE_TIMEOUT_SECONDS,
@@ -149,6 +152,49 @@ class ConfigTests(unittest.TestCase):
 
             with self.assertRaises(ValueError):
                 config.tts_provider = "nope"
+
+    def test_browser_settings_default_and_persist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            # Off and headed by default; no monitor pinned.
+            self.assertFalse(config.browser_enabled)
+            self.assertFalse(config.browser_headless)
+            self.assertIsNone(config.browser_monitor_device)
+
+            config.browser_enabled = True
+            config.browser_headless = True
+            config.browser_monitor_device = "  \\\\.\\DISPLAY2  "
+            self.assertTrue(config.browser_enabled)
+            self.assertTrue(config.browser_headless)
+            self.assertEqual(config.browser_monitor_device, "\\\\.\\DISPLAY2")
+
+            # Blank monitor falls back to None (auto).
+            config.browser_monitor_device = "   "
+            self.assertIsNone(config.browser_monitor_device)
+
+            # Non-bool enabled/headless fall back to the default.
+            config.set("browser.enabled", "yes")
+            self.assertFalse(config.browser_enabled)
+
+    def test_browser_timeout_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            config.set("browser.timeout_seconds", "bad")
+            self.assertEqual(
+                config.browser_timeout_seconds, DEFAULT_BROWSER_TIMEOUT_SECONDS
+            )
+
+            config.browser_timeout_seconds = 5
+            self.assertEqual(
+                config.browser_timeout_seconds, MIN_BROWSER_TIMEOUT_SECONDS
+            )
+
+            config.browser_timeout_seconds = 99999
+            self.assertEqual(
+                config.browser_timeout_seconds, MAX_BROWSER_TIMEOUT_SECONDS
+            )
 
     def test_voice_sample_defaults_empty_and_persists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

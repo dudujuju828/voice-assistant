@@ -21,6 +21,9 @@ ENV/
 # Local TTS model files (large; downloaded separately — see README)
 models/
 
+# Agentic browsing runtime (generated MCP configs, browser profile)
+.runtime/
+
 # Scaffolding artifacts
 .architecture-research.json
 .architecture-final.json

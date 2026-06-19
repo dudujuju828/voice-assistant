@@ -369,7 +369,7 @@ class _FakeAskClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
 
-    def ask(self, question: str, shot):
+    def ask(self, question: str, shot, mcp_config_path=None):
         self.calls.append((question, shot))
         return "reply"
 

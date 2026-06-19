@@ -26,6 +26,7 @@ from PySide6.QtCore import QObject, QThread, QTimer, Qt, Signal  # noqa: E402
 from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon  # noqa: E402
 
 import app_logging  # noqa: E402
+import browser_mcp  # noqa: E402
 import capture  # noqa: E402
 import runtime_checks  # noqa: E402
 from single_instance import SingleInstance  # noqa: E402
@@ -66,12 +67,14 @@ class AskWorker(QThread):
         question: str,
         device: str | None,
         include_screenshot: bool,
+        browser_server: "browser_mcp.BrowserMcpServer | None" = None,
     ) -> None:
         super().__init__()
         self._client = client
         self._question = question
         self._device = device
         self._include_screenshot = include_screenshot
+        self._browser_server = browser_server
 
     def run(self) -> None:
         shot = None
@@ -81,8 +84,21 @@ class AskWorker(QThread):
             except Exception as exc:
                 self.failed.emit(f"Screenshot failed: {exc}")
                 return
+        # If this is a browsing turn, make sure the persistent browser MCP server
+        # is up before the turn. The (possibly slow, first-run) startup happens
+        # here on the worker thread, not the UI thread. If it can't start, fall
+        # back to a normal turn so the user still gets an answer.
+        mcp_config_path = None
+        if self._browser_server is not None:
+            try:
+                if self._browser_server.ensure_ready():
+                    mcp_config_path = self._browser_server.mcp_config_path
+                else:
+                    logger.warning("Browser not ready; answering without it.")
+            except Exception as exc:
+                logger.warning("Browser MCP server failed to start: %s", exc)
         try:
-            reply = self._client.ask(self._question, shot)
+            reply = self._client.ask(self._question, shot, mcp_config_path)
         except ClaudeError as exc:
             self.failed.emit(f"Claude error: {exc}")
             return
@@ -180,6 +196,11 @@ class VoiceAssistant(QObject):
         self._busy = False
         self._recording = False
         self._error_token = 0
+        # Agentic browsing: once a browse is triggered we stay in browsing mode
+        # (tools stay attached across turns) until an exit phrase. The MCP server
+        # is created lazily on the first browse and owned for the app's lifetime.
+        self._browsing = False
+        self._browser_server: browser_mcp.BrowserMcpServer | None = None
         self._active_capture_method: str | None = None
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
@@ -369,16 +390,50 @@ class VoiceAssistant(QObject):
         if self._client is None:
             self._fail_current_turn("Claude is not available.")
             return
+        browser_server = self._resolve_browser_for_turn(text)
+        if browser_server is not None:
+            # Browse turns run longer; widen the watchdog so it only fires on a
+            # true hang, not on a normal (slow) navigation.
+            self._start_watchdog(browsing=True)
         self._ask_worker = AskWorker(
             self._client,
             text,
             self._config.capture_monitor_device,
             self._config.include_screenshot,
+            browser_server,
         )
         self._ask_worker.succeeded.connect(self._on_reply)
         self._ask_worker.failed.connect(self._on_ask_failed)
         self._track_worker(self._ask_worker)
         self._ask_worker.start()
+
+    def _resolve_browser_for_turn(self, text: str):
+        """Decide whether this turn may browse, managing browsing mode.
+
+        Returns the (lazily created) MCP server when browsing is on, else None.
+        An explicit "close the browser" phrase exits the mode and shuts the
+        window; a browse request enters it; otherwise we stay in whatever mode
+        the previous turn left us in, so follow-ups like "scroll down" continue.
+        """
+        if not self._config.browser_enabled:
+            self._browsing = False
+            return None
+        if browser_mcp.looks_like_browse_exit(text):
+            self._browsing = False
+            self._stop_browser_server()
+            return None
+        if browser_mcp.looks_like_browse_request(text):
+            self._browsing = True
+        if not self._browsing:
+            return None
+        if self._browser_server is None:
+            self._browser_server = browser_mcp.BrowserMcpServer(self._config)
+        return self._browser_server
+
+    def _stop_browser_server(self) -> None:
+        server = getattr(self, "_browser_server", None)
+        if server is not None:
+            server.stop()
 
     def _read_transcript(self) -> str:
         """Read the transcribed text from the configured capture source."""
@@ -472,13 +527,15 @@ class VoiceAssistant(QObject):
             self._workers.discard(worker)
             worker.deleteLater()
 
-    def _start_watchdog(self) -> None:
+    def _start_watchdog(self, browsing: bool = False) -> None:
         # Budget beyond every internal timeout so it only fires on a true hang.
-        budget = (
-            self._config.claude_timeout_seconds
-            + self._config.tts_request_timeout_seconds
-            + 60
-        )
+        # Browse turns use the (longer) browser timeout, plus extra slack for the
+        # first-run server startup.
+        if browsing:
+            turn_budget = self._config.browser_timeout_seconds + 120
+        else:
+            turn_budget = self._config.claude_timeout_seconds
+        budget = turn_budget + self._config.tts_request_timeout_seconds + 60
         self._watchdog.start(budget * 1000)
 
     def _stop_watchdog(self) -> None:
@@ -561,6 +618,9 @@ class VoiceAssistant(QObject):
 
     def _reset_claude_session(self) -> None:
         self._config.session_id = None
+        # The conversation is gone, so leave browsing mode too (the open window
+        # stays put for the user; a new browse request will re-enter the mode).
+        self._browsing = False
         logger.info("Claude session reset by user.")
         self._tray.notify("Voice Assistant", "Claude session reset.")
 
@@ -592,6 +652,7 @@ class VoiceAssistant(QObject):
             script = os.path.abspath(sys.argv[0])
             if self._hotkey is not None:
                 self._hotkey.unregister()
+            self._stop_browser_server()
             if self._single_instance is not None:
                 self._single_instance.close()
             subprocess.Popen(
@@ -610,6 +671,7 @@ class VoiceAssistant(QObject):
     def _quit(self) -> None:
         if self._hotkey is not None:
             self._hotkey.unregister()
+        self._stop_browser_server()
         self._tray.hide()
         self._app.quit()
 
