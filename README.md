@@ -3,11 +3,26 @@
 A Windows system-tray co-pilot with a near-zero visual footprint. Hold a global
 hotkey to talk, release it when you're done. [Wispr Flow](https://wisprflow.ai)
 (bound to the same keys) transcribes your speech, the app captures that text
-silently, screenshots your chosen monitor, asks Claude (Opus) via the Claude
-Code CLI in a persistent session, and speaks the answer back through ElevenLabs
-streaming TTS. The only thing on screen is a tiny dot in the corner.
+silently, screenshots your chosen monitor, asks Claude via the Claude Code CLI
+in a persistent session, and speaks the answer back. The only thing on screen is
+a tiny dot in the corner.
+
+Text-to-speech can run through the **ElevenLabs API**, or fully **locally** with
+[Kokoro](https://github.com/thewh1teagle/kokoro-onnx) (fast) or
+[Chatterbox](https://github.com/resemble-ai/chatterbox) (higher quality, can
+clone your own voice). See [Local TTS](#local-tts-offline).
 
 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the full design.
+
+> [!WARNING]
+> **This assistant runs Claude with `--dangerously-skip-permissions`.** It is a
+> hands-free, headless agent, so Claude executes tool calls — including running
+> shell commands and reading/writing files on your machine — without asking for
+> confirmation. That is what lets you ask it to actually *do* things by voice,
+> but it means anything you say is acted on with your full user permissions. Run
+> it only on a machine you trust, and read
+> [`claude_client.py`](claude_client.py) if you want to change this. To require
+> approvals, remove the `--dangerously-skip-permissions` flag there.
 
 ## Prerequisites
 
@@ -38,10 +53,12 @@ python main.py
 4. The only visible cue is a small dot in the bottom-right corner: red while
    recording, amber while thinking, green while speaking. It's gone when idle.
 5. Right-click the tray icon for **Settings** (capture monitor, capture method,
-   the **send-screenshot toggle**, Claude model/effort/timeout, voice, and TTS
-   quality/timeout), **Reset Claude Session**, **Pause Hotkey**, or **Quit**.
-   Turn the screenshot toggle off to use it as a plain voice assistant — no
-   screen capture, and no image is sent to Claude.
+   the **send-screenshot toggle**, Claude model/effort/timeout, the TTS provider
+   and voice, and TTS quality/timeout), **Reset Claude Session**, **Pause
+   Hotkey**, **Restart Voice Assistant**, or **Quit**. Turn the screenshot toggle
+   off to use it as a plain voice assistant — no screen capture, and no image is
+   sent to Claude. **Restart** relaunches the app in a fresh process (handy after
+   changing settings); Settings also has a **Save & Restart** button.
 
 ### Capture methods
 
@@ -74,7 +91,10 @@ fields. Claude effort maps to the Claude Code CLI `--effort` option (`low`,
 `medium`, `high`, `xhigh`, `max`) and can be left at `default` to omit the
 flag. Claude and ElevenLabs timeouts are configurable and bounded. ElevenLabs
 stability, similarity, and speed are also bounded before use so bad config
-values fall back to safe ranges.
+values fall back to safe ranges. A **TTS provider** dropdown switches between the
+ElevenLabs API and the local Kokoro/Chatterbox engines, with a local-voice
+picker and a voice-sample field for Chatterbox cloning — see
+[Local TTS](#local-tts-offline).
 
 ### Local TTS (offline)
 
