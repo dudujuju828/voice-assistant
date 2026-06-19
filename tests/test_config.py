@@ -140,12 +140,28 @@ class ConfigTests(unittest.TestCase):
             config.tts_provider = "local"
             self.assertEqual(config.tts_provider, "local")
 
+            config.tts_provider = "chatterbox"
+            self.assertEqual(config.tts_provider, "chatterbox")
+
             # An unknown stored value falls back to the default.
             config.set("tts.provider", "bogus")
             self.assertEqual(config.tts_provider, "elevenlabs")
 
             with self.assertRaises(ValueError):
                 config.tts_provider = "nope"
+
+    def test_voice_sample_defaults_empty_and_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+
+            self.assertEqual(config.tts_voice_sample, "")
+
+            config.tts_voice_sample = "  C:/voices/me.wav  "
+            self.assertEqual(config.tts_voice_sample, "C:/voices/me.wav")
+
+            # A non-string stored value falls back to the empty default.
+            config.set("tts.voice_sample", 123)
+            self.assertEqual(config.tts_voice_sample, "")
 
     def test_local_voice_defaults_and_persists(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

@@ -22,11 +22,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_VOICE_ID = "pFZP5JQG7iQjIQuC4Bku"  # Lily — a premade voice usable on the free plan
 DEFAULT_TTS_MODEL = "eleven_turbo_v2_5"  # quality/latency balance — good for streaming
 
-# TTS provider: the ElevenLabs API, or a local model (Kokoro) for offline /
-# no-credit use. The local voice is a Kokoro voice id (e.g. af_heart, am_adam).
+# TTS provider: the ElevenLabs API, or a local model for offline / no-credit
+# use. "local" is Kokoro (fast, fixed voices); "chatterbox" is Resemble AI's
+# higher-quality model that clones the voice in tts.voice_sample. The local
+# voice is a Kokoro voice id (e.g. af_heart, am_adam).
 DEFAULT_TTS_PROVIDER = "elevenlabs"
-TTS_PROVIDERS = {"elevenlabs", "local"}
+TTS_PROVIDERS = {"elevenlabs", "local", "chatterbox"}
 DEFAULT_LOCAL_VOICE = "af_heart"
+# Path to a reference WAV for Chatterbox voice cloning. Empty = fall back to the
+# bundled models/voice_sample.wav (if present), else Chatterbox's built-in voice.
+DEFAULT_VOICE_SAMPLE = ""
 DEFAULT_CLAUDE_MODEL = "haiku"  # fastest model, so spoken replies feel snappy
 DEFAULT_CLAUDE_EFFORT = "default"
 DEFAULT_HOTKEY_MODS = ["ctrl"]
@@ -109,6 +114,7 @@ def _default_config() -> dict[str, Any]:
         "tts": {
             "provider": DEFAULT_TTS_PROVIDER,
             "local_voice": DEFAULT_LOCAL_VOICE,
+            "voice_sample": DEFAULT_VOICE_SAMPLE,
         },
     }
 
@@ -398,7 +404,7 @@ class Config:
 
     @property
     def tts_provider(self) -> str:
-        """Which TTS backend to use: 'elevenlabs' (API) or 'local' (Kokoro)."""
+        """TTS backend: 'elevenlabs' (API), 'local' (Kokoro), or 'chatterbox'."""
         provider = str(self.get("tts.provider", DEFAULT_TTS_PROVIDER) or "").lower()
         return provider if provider in TTS_PROVIDERS else DEFAULT_TTS_PROVIDER
 
@@ -416,6 +422,19 @@ class Config:
     @tts_local_voice.setter
     def tts_local_voice(self, value: str) -> None:
         self.set("tts.local_voice", _non_empty_str(value, DEFAULT_LOCAL_VOICE))
+
+    @property
+    def tts_voice_sample(self) -> str:
+        """Reference WAV path for Chatterbox cloning ('' = bundled/built-in voice)."""
+        value = self.get("tts.voice_sample", DEFAULT_VOICE_SAMPLE)
+        return value.strip() if isinstance(value, str) else DEFAULT_VOICE_SAMPLE
+
+    @tts_voice_sample.setter
+    def tts_voice_sample(self, value: str) -> None:
+        self.set(
+            "tts.voice_sample",
+            value.strip() if isinstance(value, str) else DEFAULT_VOICE_SAMPLE,
+        )
 
     @property
     def tts_model(self) -> str:

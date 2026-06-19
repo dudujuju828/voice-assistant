@@ -18,10 +18,11 @@ import os
 import threading
 from typing import Optional
 
+import audio_playback
+
 logger = logging.getLogger(__name__)
 
 SAMPLE_RATE_FALLBACK = 24000
-CHUNK_FRAMES = 2048  # int16 frames per write — small enough for snappy barge-in
 
 _MODELS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
 _MODEL_PATH = os.path.join(_MODELS_DIR, "kokoro-v1.0.onnx")
@@ -162,31 +163,7 @@ def speak_local(
         return False
 
     # float32 [-1, 1] -> int16 PCM, then stream in chunks so cancel can abort.
-    pcm = np.clip(np.asarray(samples, dtype="float32"), -1.0, 1.0)
-    pcm16 = (pcm * 32767.0).astype("<i2").tobytes()
-    return _play_int16(pcm16, int(sample_rate or SAMPLE_RATE_FALLBACK), sd, cancel)
-
-
-def _play_int16(data: bytes, sample_rate: int, sd, cancel) -> bool:
-    """Stream int16 PCM bytes into sounddevice, honouring a cancel event."""
-    stream = sd.RawOutputStream(samplerate=sample_rate, channels=1, dtype="int16")
-    stream.start()
-    bytes_per_chunk = CHUNK_FRAMES * 2  # 2 bytes per int16 frame
-    wrote_audio = False
-    try:
-        for offset in range(0, len(data), bytes_per_chunk):
-            if cancel is not None and cancel.is_set():
-                break
-            chunk = data[offset : offset + bytes_per_chunk]
-            if chunk:
-                stream.write(chunk)
-                wrote_audio = True
-    finally:
-        # On barge-in, abort() drops buffered audio for an instant cut-off.
-        abort = getattr(stream, "abort", None)
-        if cancel is not None and cancel.is_set() and callable(abort):
-            abort()
-        else:
-            stream.stop()
-        stream.close()
-    return wrote_audio
+    pcm16 = audio_playback.float_to_pcm16(samples, np)
+    return audio_playback.play_int16(
+        pcm16, int(sample_rate or SAMPLE_RATE_FALLBACK), sd, cancel
+    )

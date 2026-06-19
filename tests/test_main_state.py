@@ -315,6 +315,7 @@ class SpeakWorkerDispatchTests(unittest.TestCase):
             threading.Event(),
             provider,
             "am_adam",
+            "C:/voices/me.wav",
         )
 
     def test_local_provider_calls_kokoro_not_elevenlabs(self) -> None:
@@ -322,25 +323,45 @@ class SpeakWorkerDispatchTests(unittest.TestCase):
         with (
             patch("main.tts_local.speak_local", return_value=True) as local,
             patch("main.tts.speak") as eleven,
+            patch("main.tts_chatterbox.speak_chatterbox") as chatter,
         ):
             worker.run()
 
         eleven.assert_not_called()
+        chatter.assert_not_called()
         local.assert_called_once()
         args = local.call_args.args
         self.assertEqual(args[0], "hello there")
         self.assertEqual(args[1], "am_adam")  # local voice, not the EL voice id
 
-    def test_elevenlabs_provider_calls_api_not_kokoro(self) -> None:
+    def test_elevenlabs_provider_calls_api_not_local(self) -> None:
         worker = self._worker("elevenlabs")
         with (
             patch("main.tts.speak", return_value=True) as eleven,
             patch("main.tts_local.speak_local") as local,
+            patch("main.tts_chatterbox.speak_chatterbox") as chatter,
         ):
             worker.run()
 
         local.assert_not_called()
+        chatter.assert_not_called()
         eleven.assert_called_once()
+
+    def test_chatterbox_provider_calls_chatterbox_with_voice_sample(self) -> None:
+        worker = self._worker("chatterbox")
+        with (
+            patch("main.tts_chatterbox.speak_chatterbox", return_value=True) as chatter,
+            patch("main.tts.speak") as eleven,
+            patch("main.tts_local.speak_local") as local,
+        ):
+            worker.run()
+
+        eleven.assert_not_called()
+        local.assert_not_called()
+        chatter.assert_called_once()
+        args = chatter.call_args.args
+        self.assertEqual(args[0], "hello there")
+        self.assertEqual(args[1], "C:/voices/me.wav")  # the cloning sample path
 
 
 class _FakeAskClient:

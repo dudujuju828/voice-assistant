@@ -28,6 +28,7 @@ import capture  # noqa: E402
 import runtime_checks  # noqa: E402
 from single_instance import SingleInstance  # noqa: E402
 import tts  # noqa: E402
+import tts_chatterbox  # noqa: E402
 import tts_local  # noqa: E402
 from claude_client import (  # noqa: E402
     ClaudeClient,
@@ -92,9 +93,10 @@ class AskWorker(QThread):
 class SpeakWorker(QThread):
     """Plays a reply via the configured TTS provider off the UI thread.
 
-    Dispatches to the ElevenLabs API (tts.speak) or the local Kokoro model
-    (tts_local.speak_local) based on ``provider``. Both honour ``cancel`` so
-    barge-in can abort playback mid-sentence.
+    Dispatches on ``provider``: the ElevenLabs API (tts.speak), the local Kokoro
+    model (tts_local.speak_local), or local Chatterbox voice cloning
+    (tts_chatterbox.speak_chatterbox). All honour ``cancel`` so barge-in can
+    abort playback mid-sentence.
     """
 
     finished_speaking = Signal()
@@ -112,6 +114,7 @@ class SpeakWorker(QThread):
         cancel: threading.Event,
         provider: str = "elevenlabs",
         local_voice: str = "af_heart",
+        voice_sample: str = "",
     ) -> None:
         super().__init__()
         self._text = text
@@ -124,10 +127,17 @@ class SpeakWorker(QThread):
         self._cancel = cancel
         self._provider = provider
         self._local_voice = local_voice
+        self._voice_sample = voice_sample
 
     def run(self) -> None:
         try:
-            if self._provider == "local":
+            if self._provider == "chatterbox":
+                played = tts_chatterbox.speak_chatterbox(
+                    self._text,
+                    self._voice_sample,
+                    cancel=self._cancel,
+                )
+            elif self._provider == "local":
                 played = tts_local.speak_local(
                     self._text,
                     self._local_voice,
@@ -418,6 +428,7 @@ class VoiceAssistant(QObject):
             self._cancel_event,
             self._config.tts_provider,
             self._config.tts_local_voice,
+            self._config.tts_voice_sample,
         )
         self._speak_worker.failed.connect(self._on_speech_failed)
         self._speak_worker.finished_speaking.connect(self._on_speech_done)

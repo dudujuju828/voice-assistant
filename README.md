@@ -117,3 +117,34 @@ execution provider, and falls back to CPU automatically if the GPU libraries
 aren't present (logged, never a crash). The log line `Kokoro running on GPU
 (CUDAExecutionProvider)` confirms the GPU is in use; check
 `voice-assistant.log`.
+
+### Higher-quality local TTS with voice cloning (Chatterbox)
+
+For noticeably more natural speech — and to clone a specific voice — set the
+**TTS provider** to *Local — Chatterbox*. [Chatterbox](https://github.com/resemble-ai/chatterbox)
+(Resemble AI) is a ~0.5 B model; it's slower than Kokoro (~1–2 s per reply on an
+RTX 4060 vs ~0.3 s) but clearly higher quality and can speak in a voice you
+provide.
+
+1. Install the deps. For GPU, install the CUDA torch build **first** so pip
+   doesn't pull the CPU-only wheel:
+
+   ```bash
+   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+   pip install chatterbox-tts
+   ```
+
+2. Provide a voice to clone (optional). Drop a clean 7–20 s WAV of one speaker at
+   `models/voice_sample.wav` and it's used automatically, or set a path under
+   **Settings → Cloning voice sample** (the *Browse…* button opens a file
+   picker). Leave it blank with no bundled file to use Chatterbox's built-in
+   voice.
+
+3. Set **TTS provider** to *Local — Chatterbox* and save.
+
+The ~1 GB model downloads from Hugging Face on first use, then is cached.
+`tts_chatterbox.py` auto-detects CUDA (`torch.cuda`) and falls back to CPU,
+logging `Chatterbox running on cuda`/`cpu`. Like the Kokoro path, a missing
+dependency or model degrades to silence rather than crashing — switch back to
+another provider if you haven't installed it. The voice sample is git-ignored,
+so it stays on your machine.

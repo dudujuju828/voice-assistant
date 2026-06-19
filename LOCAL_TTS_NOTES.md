@@ -42,3 +42,32 @@ Verified Kokoro synthesizes (af_heart, 24 kHz): cold load ~9.5s, first synth
 - tts_local._load_kokoro_gpu builds an InferenceSession with
   [CUDA, CPU] providers via Kokoro.from_session; auto CPU fallback + logging.
 - Measured on RTX 4060: load 2.3s, synth ~0.3s warm (was ~5.7s CPU) — ~18x.
+
+## Higher-quality model: Chatterbox + voice cloning — code DONE
+Request: swap the local model to something higher quality and clone the user's
+own voice (sample at C:\Users\max\Documents\Audacity\myvoice.wav, 14s).
+
+- Engine: **Chatterbox** (Resemble AI, ~0.5B, MIT). Quality > Kokoro; slower
+  (~1–2s/reply on the 4060 vs ~0.3s). torch-based, so it adds a torch/torchaudio
+  stack alongside onnxruntime (they coexist — torch bundles its own CUDA cu12,
+  onnxruntime uses the cu13 wheels).
+- New provider `tts.provider = "chatterbox"` (3rd option beside elevenlabs/local).
+- Backend `tts_chatterbox.py`: lazy ChatterboxTTS load, torch.cuda device select +
+  CPU fallback, generate -> flatten tensor -> shared audio_playback. Same
+  cancel/abort barge-in as Kokoro.
+- Shared `audio_playback.py`: float_to_pcm16 + play_int16, extracted from
+  tts_local so both local backends stream identically (no duplication).
+- Voice cloning: config `tts.voice_sample` (path). Empty -> auto-use bundled
+  `models/voice_sample.wav` (the user's clip, copied there, git-ignored) ->
+  else Chatterbox built-in voice. Settings has a path field + Browse button.
+- SpeakWorker dispatches chatterbox; main passes config.tts_voice_sample.
+- Tests: test_tts_chatterbox + test_audio_playback + config/main_state additions
+  (Chatterbox mocked). 93 passing.
+
+### TODO to actually run it
+- Install deps into the .venv (heavy, ~2.5GB torch + ~1GB model on first use):
+    pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+    pip install chatterbox-tts
+- Verify kokoro-onnx/onnxruntime still import after (numpy/dep shuffle risk).
+- First real synth not yet run (would download model + play audio; avoided
+  during the user's active session per the no-playback constraint).

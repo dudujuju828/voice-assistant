@@ -16,3 +16,12 @@ soundfile
 #   pip install nvidia-cublas nvidia-cuda-runtime nvidia-cuda-nvrtc \
 #               nvidia-cufft nvidia-curand nvidia-cusparse nvidia-cudnn-cu13
 # tts_local.py auto-detects CUDA and falls back to CPU if it's unavailable.
+
+# Optional: higher-quality local TTS with voice cloning via Chatterbox
+# (Resemble AI). Only needed when the TTS provider is "chatterbox". This pulls
+# in torch/torchaudio; for GPU, install the CUDA torch build FIRST so pip
+# doesn't grab the CPU-only wheel:
+#   pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+#   pip install chatterbox-tts
+# tts_chatterbox.py auto-detects CUDA (torch.cuda) and falls back to CPU. The
+# ~1 GB model downloads from Hugging Face on first use.

@@ -11,11 +11,15 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
+    QPushButton,
     QSpinBox,
+    QWidget,
 )
 
 import monitors
@@ -65,6 +69,7 @@ _TTS_MODELS = [
 _TTS_PROVIDERS = [
     ("ElevenLabs (API)", "elevenlabs"),
     ("Local — Kokoro (offline)", "local"),
+    ("Local — Chatterbox (voice cloning)", "chatterbox"),
 ]
 
 # A handful of Kokoro voices for the local picker (it's editable, so any voice
@@ -241,6 +246,23 @@ class SettingsDialog(QDialog):
         _set_combo_value(self._local_voice_combo, config.tts_local_voice)
         form.addRow("Local voice:", self._local_voice_combo)
 
+        # --- Chatterbox voice sample (for voice cloning) ---
+        self._voice_sample_input = QLineEdit(config.tts_voice_sample, self)
+        self._voice_sample_input.setPlaceholderText(
+            "Blank = bundled models/voice_sample.wav, else built-in voice"
+        )
+        self._voice_sample_input.setToolTip(
+            "Path to a 7–20 s WAV of the voice Chatterbox should clone."
+        )
+        browse_sample = QPushButton("Browse…", self)
+        browse_sample.clicked.connect(self._browse_voice_sample)
+        sample_row = QWidget(self)
+        sample_layout = QHBoxLayout(sample_row)
+        sample_layout.setContentsMargins(0, 0, 0, 0)
+        sample_layout.addWidget(self._voice_sample_input)
+        sample_layout.addWidget(browse_sample)
+        form.addRow("Cloning voice sample:", sample_row)
+
         # --- voice dropdown ---
         self._voice_combo = QComboBox(self)
         self._voice_combo.setEditable(True)
@@ -299,6 +321,16 @@ class SettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
 
+    def _browse_voice_sample(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Choose a voice sample to clone",
+            self._voice_sample_input.text().strip() or "",
+            "Audio files (*.wav *.mp3 *.flac);;All files (*)",
+        )
+        if path:
+            self._voice_sample_input.setText(path)
+
     def _on_save(self) -> None:
         updates = {}
         device = self._monitor_combo.currentData()
@@ -325,6 +357,7 @@ class SettingsDialog(QDialog):
         local_voice = _combo_value(self._local_voice_combo)
         if local_voice:
             updates["tts.local_voice"] = local_voice
+        updates["tts.voice_sample"] = self._voice_sample_input.text().strip()
         tts_model = _combo_value(self._tts_model_combo)
         if tts_model:
             updates["elevenlabs.model_id"] = tts_model
