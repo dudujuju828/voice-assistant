@@ -200,6 +200,11 @@ class VoiceAssistant(QObject):
         # (tools stay attached across turns) until an exit phrase. The MCP server
         # is created lazily on the first browse and owned for the app's lifetime.
         self._browsing = False
+        # True from when a browse turn starts until it completes. If a new browse
+        # request arrives while this is still set, the previous browse never
+        # finished (barge-in, timeout), so we start the new one in a fresh Claude
+        # session instead of resuming the half-done task.
+        self._browse_pending = False
         self._browser_server: browser_mcp.BrowserSession | None = None
         self._active_capture_method: str | None = None
         self._clipboard_capture_active = False
@@ -395,6 +400,8 @@ class VoiceAssistant(QObject):
             # Browse turns run longer; widen the watchdog so it only fires on a
             # true hang, not on a normal (slow) navigation.
             self._start_watchdog(browsing=True)
+            # Mark this browse as in-flight; cleared only when it completes.
+            self._browse_pending = True
         self._ask_worker = AskWorker(
             self._client,
             text,
@@ -410,10 +417,14 @@ class VoiceAssistant(QObject):
     def _resolve_browser_for_turn(self, text: str):
         """Decide whether this turn may browse, managing browsing mode.
 
-        Returns the (lazily created) MCP server when browsing is on, else None.
-        An explicit "close the browser" phrase exits the mode and shuts the
+        Returns the (lazily created) browser session when browsing is on, else
+        None. An explicit "close the browser" phrase exits the mode and shuts the
         window; a browse request enters it; otherwise we stay in whatever mode
         the previous turn left us in, so follow-ups like "scroll down" continue.
+
+        A *new* browse request that arrives while a previous browse never
+        completed (``_browse_pending``) starts a fresh Claude session, so the new
+        task doesn't resume and continue the abandoned one.
         """
         if not self._config.browser_enabled:
             self._browsing = False
@@ -423,6 +434,12 @@ class VoiceAssistant(QObject):
             self._stop_browser_server()
             return None
         if browser_mcp.looks_like_browse_request(text):
+            if self._browse_pending:
+                logger.info(
+                    "New browse request supersedes an unfinished one; "
+                    "starting a fresh Claude session."
+                )
+                self._config.session_id = None
             self._browsing = True
         if not self._browsing:
             return None
@@ -501,6 +518,8 @@ class VoiceAssistant(QObject):
     def _on_speech_done(self) -> None:
         if self.sender() is not self._speak_worker:
             return  # Stale worker from a timed-out turn; ignore.
+        # The turn finished cleanly, so any in-flight browse is now complete.
+        self._browse_pending = False
         self._return_to_idle()
 
     def _on_speech_failed(self, message: str) -> None:

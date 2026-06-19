@@ -440,5 +440,60 @@ class RestartTests(unittest.TestCase):
         self.assertNotIn("quit", assistant._events)
 
 
+class BrowseSupersedeTests(unittest.TestCase):
+    """A new browse request must not resume an unfinished previous browse."""
+
+    def _va(self, pending: bool, session="sess-1") -> VoiceAssistant:
+        a = VoiceAssistant.__new__(VoiceAssistant)
+        a._browsing = True
+        a._browse_pending = pending
+        a._browser_server = object()  # already created; skip real construction
+        a._config = SimpleNamespace(
+            browser_enabled=True,
+            session_id=session,
+            browser_monitor_device=None,
+            browser_headless=False,
+        )
+        return a
+
+    def test_new_request_after_unfinished_browse_resets_session(self) -> None:
+        a = self._va(pending=True)
+        with patch("main.logger.info"):
+            srv = a._resolve_browser_for_turn("open the browser and search for vector")
+        self.assertIs(srv, a._browser_server)
+        self.assertIsNone(a._config.session_id)  # fresh session
+
+    def test_new_request_after_completed_browse_keeps_session(self) -> None:
+        a = self._va(pending=False)
+        srv = a._resolve_browser_for_turn("open the browser and search for vector")
+        self.assertIs(srv, a._browser_server)
+        self.assertEqual(a._config.session_id, "sess-1")  # continues normally
+
+    def test_followup_keeps_session_even_if_pending(self) -> None:
+        # A continuation ("scroll down") is not a new request, so it resumes.
+        a = self._va(pending=True)
+        srv = a._resolve_browser_for_turn("scroll down a bit")
+        self.assertIs(srv, a._browser_server)
+        self.assertEqual(a._config.session_id, "sess-1")
+
+    def test_exit_phrase_stops_browsing(self) -> None:
+        a = self._va(pending=True)
+        stopped = []
+        a._stop_browser_server = lambda: stopped.append(True)  # type: ignore[method-assign]
+        srv = a._resolve_browser_for_turn("close the browser")
+        self.assertIsNone(srv)
+        self.assertFalse(a._browsing)
+        self.assertTrue(stopped)
+
+    def test_speech_done_clears_browse_pending(self) -> None:
+        a = VoiceAssistant.__new__(VoiceAssistant)
+        QObject.__init__(a)  # so self.sender() works
+        a._browse_pending = True
+        a._speak_worker = None  # sender() is None == _speak_worker -> not stale
+        a._return_to_idle = lambda: None  # type: ignore[method-assign]
+        a._on_speech_done()
+        self.assertFalse(a._browse_pending)
+
+
 if __name__ == "__main__":
     unittest.main()
