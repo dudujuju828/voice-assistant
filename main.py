@@ -179,6 +179,7 @@ class VoiceAssistant(QObject):
 
         self._busy = False
         self._recording = False
+        self._error_token = 0
         self._active_capture_method: str | None = None
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
@@ -274,6 +275,7 @@ class VoiceAssistant(QObject):
         if self._busy:
             self._barge_in()
         self._recording = True
+        self._error_token += 1
         self._active_capture_method = self._config.capture_method
         try:
             self._overlay.show_recording()
@@ -515,6 +517,7 @@ class VoiceAssistant(QObject):
     def _reset_state(self) -> None:
         self._recording = False
         self._busy = False
+        self._error_token += 1
         self._active_capture_method = None
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
@@ -534,7 +537,13 @@ class VoiceAssistant(QObject):
         self._tray.notify("Voice Assistant", message)
         self._reset_state()
         self._overlay.show_error()
-        QTimer.singleShot(2500, self._overlay.hide)
+        self._error_token += 1
+        token = self._error_token
+        QTimer.singleShot(2500, lambda: self._hide_error(token))
+
+    def _hide_error(self, token: int) -> None:
+        if token == self._error_token:
+            self._overlay.hide()
 
     # --- tray actions -------------------------------------------------------
 

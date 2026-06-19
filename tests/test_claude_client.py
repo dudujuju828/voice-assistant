@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import threading
 import unittest
-from types import SimpleNamespace
 from unittest.mock import patch
 
 from claude_client import (
@@ -21,10 +21,32 @@ class FakeConfig:
         self.claude_timeout_seconds = 45
 
 
+class FakePopen:
+    def __init__(self, stdout: str = "", stderr: str = "", returncode: int = 0) -> None:
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+        self.timeout = None
+        self.killed = False
+
+    def communicate(self, timeout=None):
+        self.timeout = timeout
+        return self._stdout, self._stderr
+
+    def poll(self):
+        return self.returncode
+
+    def kill(self) -> None:
+        self.killed = True
+
+
 class ClaudeClientParseTests(unittest.TestCase):
     def _client(self) -> ClaudeClient:
         client = object.__new__(ClaudeClient)
         client._config = FakeConfig()
+        client._proc_lock = threading.Lock()
+        client._active_proc = None
+        client._cancelled = False
         return client
 
     def test_parse_result_returns_text_and_persists_session(self) -> None:
@@ -94,33 +116,26 @@ class ClaudeClientParseTests(unittest.TestCase):
     def test_run_turn_omits_default_effort(self) -> None:
         client = self._client()
         client._claude_path = "claude"
-        completed = SimpleNamespace(
-            returncode=0,
-            stderr="",
-            stdout=json.dumps({"result": "ok", "session_id": "session-789"}),
-        )
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "session-789"}))
 
-        with patch("claude_client.subprocess.run", return_value=completed) as run:
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
             client._run_turn("prompt", None, None)
 
-        command = run.call_args.args[0]
+        command = popen.call_args.args[0]
         self.assertNotIn("--effort", command)
-        self.assertEqual(run.call_args.kwargs["timeout"], 45)
+        # The turn timeout is applied to communicate(), not the Popen call.
+        self.assertEqual(fake.timeout, 45)
 
     def test_run_turn_includes_configured_effort(self) -> None:
         client = self._client()
         client._claude_path = "claude"
         client._config.claude_effort = "high"
-        completed = SimpleNamespace(
-            returncode=0,
-            stderr="",
-            stdout=json.dumps({"result": "ok", "session_id": "session-789"}),
-        )
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "session-789"}))
 
-        with patch("claude_client.subprocess.run", return_value=completed) as run:
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
             client._run_turn("prompt", None, None)
 
-        command = run.call_args.args[0]
+        command = popen.call_args.args[0]
         self.assertIn("--effort", command)
         effort_index = command.index("--effort")
         self.assertEqual(command[effort_index + 1], "high")
@@ -130,42 +145,32 @@ class ClaudeClientParseTests(unittest.TestCase):
         # --dangerously-skip-permissions to act on the user's behalf.
         client = self._client()
         client._claude_path = "claude"
-        completed = SimpleNamespace(
-            returncode=0,
-            stderr="",
-            stdout=json.dumps({"result": "ok", "session_id": "s"}),
-        )
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "s"}))
 
-        with patch("claude_client.subprocess.run", return_value=completed) as run:
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
             client._run_turn("prompt", None, None)
 
-        command = run.call_args.args[0]
+        command = popen.call_args.args[0]
         self.assertIn("--dangerously-skip-permissions", command)
 
     def test_screenshot_prompt_appended_only_with_screenshot(self) -> None:
         client = self._client()
         client._claude_path = "claude"
-        completed = SimpleNamespace(
-            returncode=0,
-            stderr="",
-            stdout=json.dumps({"result": "ok", "session_id": "s"}),
-        )
 
-        def system_prompt(run) -> str:
-            command = run.call_args.args[0]
+        def system_prompt_for(add_dir) -> str:
+            fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "s"}))
+            with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
+                client._run_turn("prompt", None, add_dir)
+            command = popen.call_args.args[0]
             return command[command.index("--append-system-prompt") + 1]
 
         # add_dir set -> a screenshot is attached -> include the screenshot guidance.
-        with patch("claude_client.subprocess.run", return_value=completed) as run:
-            client._run_turn("prompt", None, "C:/shots")
-        with_shot = system_prompt(run)
+        with_shot = system_prompt_for("C:/shots")
         self.assertIn(SYSTEM_PROMPT, with_shot)
         self.assertIn(SCREENSHOT_PROMPT, with_shot)
 
         # No screenshot -> base prompt only, no mention of an image.
-        with patch("claude_client.subprocess.run", return_value=completed) as run:
-            client._run_turn("prompt", None, None)
-        without_shot = system_prompt(run)
+        without_shot = system_prompt_for(None)
         self.assertIn(SYSTEM_PROMPT, without_shot)
         self.assertNotIn(SCREENSHOT_PROMPT, without_shot)
 

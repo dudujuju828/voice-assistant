@@ -65,6 +65,7 @@ class MainStateTests(unittest.TestCase):
         assistant = VoiceAssistant.__new__(VoiceAssistant)
         assistant._busy = False
         assistant._recording = False
+        assistant._error_token = 0
         assistant._active_capture_method = None
         assistant._clipboard_capture_active = False
         assistant._clipboard_changed_during_capture = False

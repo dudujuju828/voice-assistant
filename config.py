@@ -262,16 +262,29 @@ class Config:
                 )
                 self._data = _deep_merge(_default_config(), stored)
                 if self._migrate(migrate_legacy_capture_default):
-                    self.save()
+                    try:
+                        self.save()
+                    except OSError as exc:
+                        logger.warning(
+                            "Config migration succeeded in memory but could not "
+                            "persist: %s",
+                            exc,
+                        )
             except FileNotFoundError:
                 # First run: start from defaults and persist them.
                 self._data = _default_config()
-                self.save()
+                try:
+                    self.save()
+                except OSError as exc:
+                    logger.warning("Could not write default config: %s", exc)
             except (json.JSONDecodeError, ValueError):
                 # Corrupt file: keep a copy, then replace with known-good defaults.
                 _backup_corrupt_config(path)
                 self._data = _default_config()
-                self.save()
+                try:
+                    self.save()
+                except OSError as exc:
+                    logger.warning("Could not write repaired config: %s", exc)
             except OSError as exc:
                 # If the config cannot be read due to permissions/locking, run with
                 # defaults in memory and avoid overwriting a file we could not read.
@@ -344,7 +357,7 @@ class Config:
                 self.save()
             except Exception:
                 self._data = previous
-                raise
+                logger.warning("Failed to save config key %s", dotted_key, exc_info=True)
 
     def set_many(self, values: dict[str, Any]) -> None:
         with self._lock:
@@ -355,7 +368,7 @@ class Config:
                 self.save()
             except Exception:
                 self._data = previous
-                raise
+                logger.warning("Failed to save config updates", exc_info=True)
 
     def _set_in_memory(self, dotted_key: str, value: Any) -> None:
         parts = dotted_key.split(".")

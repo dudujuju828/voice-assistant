@@ -117,10 +117,10 @@ def _play_stream(
     stream = sd.RawOutputStream(
         samplerate=SAMPLE_RATE, channels=CHANNELS, dtype="int16"
     )
-    stream.start()
     leftover = b""
     wrote_audio = False
     try:
+        stream.start()
         for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
             if cancel is not None and cancel.is_set():
                 break

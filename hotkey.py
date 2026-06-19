@@ -14,10 +14,13 @@ callback — a slow hook proc would stall keyboard input system-wide.
 from __future__ import annotations
 
 import ctypes
+import logging
 from ctypes import wintypes
 from typing import TypeAlias
 
 from PySide6.QtCore import QObject, Signal
+
+logger = logging.getLogger(__name__)
 
 WH_KEYBOARD_LL = 13
 
@@ -202,17 +205,20 @@ class HotkeyManager(QObject):
         return True
 
     def _on_event(self, n_code: int, w_param: int, l_param: int) -> int:
-        if n_code == 0 and not self._paused:
-            data = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
-            if data.vkCode in self._trigger_vks:
-                if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
-                    # Trigger went down; start only if modifiers are held and we
-                    # aren't already active (ignores auto-repeat).
-                    if not self._active and self._mods_held():
-                        self._active = True
-                        self.pressed.emit()
-                elif w_param in (WM_KEYUP, WM_SYSKEYUP):
-                    if self._active:
-                        self._active = False
-                        self.released.emit()
+        try:
+            if n_code == 0 and not self._paused:
+                data = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
+                if data.vkCode in self._trigger_vks:
+                    if w_param in (WM_KEYDOWN, WM_SYSKEYDOWN):
+                        # Trigger went down; start only if modifiers are held and we
+                        # aren't already active (ignores auto-repeat).
+                        if not self._active and self._mods_held():
+                            self._active = True
+                            self.pressed.emit()
+                    elif w_param in (WM_KEYUP, WM_SYSKEYUP):
+                        if self._active:
+                            self._active = False
+                            self.released.emit()
+        except Exception:
+            logger.exception("Keyboard hook callback error")
         return self._user32.CallNextHookEx(None, n_code, w_param, l_param)

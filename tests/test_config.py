@@ -342,14 +342,20 @@ class ConfigTests(unittest.TestCase):
             self.assertIn("elevenlabs", payload)
 
     def test_failed_save_rolls_back_memory_and_removes_temp_file(self) -> None:
+        # A save failure must not propagate (it would crash the Qt slot that
+        # triggered the write); the failure is logged, the in-memory change is
+        # rolled back, and the temp file is cleaned up.
         with tempfile.TemporaryDirectory() as tmp:
             config = self._load_with_appdata(Path(tmp))
             path = Path(tmp) / "VoiceAssistant" / "config.json"
 
-            with patch("config.os.replace", side_effect=OSError("locked")):
-                with self.assertRaises(OSError):
-                    config.claude_model = "sonnet"
+            with (
+                patch("config.os.replace", side_effect=OSError("locked")),
+                patch("config.logger.warning") as warn,
+            ):
+                config.claude_model = "sonnet"  # must not raise
 
+            warn.assert_called()
             self.assertEqual(config.claude_model, DEFAULT_CLAUDE_MODEL)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
