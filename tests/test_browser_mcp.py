@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import sys
 import unittest
 
 import browser_mcp
@@ -14,6 +16,10 @@ class IntentDetectionTests(unittest.TestCase):
             "pull up the GitHub repo",
             "go to the website for me",
             "open chrome and navigate to example dot com",
+            # C++ documentation phrasings route through the fast path.
+            "open the docs for std::sort",
+            "show me the documentation for std::vector",
+            "what's on cppreference for lock_guard",
         ]:
             self.assertTrue(
                 browser_mcp.looks_like_browse_request(text), msg=text
@@ -48,6 +54,54 @@ class StdioMcpConfigTests(unittest.TestCase):
         self.assertIn("--cdp-endpoint", server["args"])
         idx = server["args"].index("--cdp-endpoint")
         self.assertEqual(server["args"][idx + 1], "http://127.0.0.1:9123")
+
+
+class CppreferenceMcpServerTests(unittest.TestCase):
+    def test_cppreference_server_registered_alongside_playwright(self) -> None:
+        cfg = browser_mcp.build_stdio_mcp_config(9123)
+        servers = cfg["mcpServers"]
+        # Additive: the existing Playwright server is untouched.
+        self.assertIn("playwright", servers)
+        self.assertIn("cppreference", servers)
+        cpp = servers["cppreference"]
+        # Runs with this app's own Python interpreter (no npx/Node), pointed at
+        # the same CDP endpoint the Playwright server attaches to.
+        self.assertEqual(cpp["command"], sys.executable)
+        self.assertIn("--cdp-endpoint", cpp["args"])
+        idx = cpp["args"].index("--cdp-endpoint")
+        self.assertEqual(cpp["args"][idx + 1], "http://127.0.0.1:9123")
+        self.assertTrue(cpp["args"][0].endswith("cppreference_mcp.py"))
+
+
+class CppreferenceUrlTests(unittest.TestCase):
+    def test_url_uses_mediawiki_go_search(self) -> None:
+        url = browser_mcp.build_cppreference_url("lock_guard")
+        self.assertEqual(
+            url,
+            "https://en.cppreference.com/mwiki/index.php"
+            "?title=Special:Search&search=lock_guard&go=Go",
+        )
+
+    def test_url_percent_encodes_symbol(self) -> None:
+        self.assertIn(
+            "search=std%3A%3Asort",
+            browser_mcp.build_cppreference_url("std::sort"),
+        )
+        self.assertIn(
+            "search=scoped%20mutex",
+            browser_mcp.build_cppreference_url("  scoped mutex  "),
+        )
+
+
+class OpenCppreferenceDegradeTests(unittest.TestCase):
+    def test_unreachable_endpoint_returns_spoken_safe_message(self) -> None:
+        # Port 1 refuses instantly; Playwright is absent in CI -> HTTP fallback
+        # fails too. Must degrade to a spoken message, never raise.
+        reply = asyncio.run(
+            browser_mcp.open_cppreference("http://127.0.0.1:1", "lock_guard")
+        )
+        self.assertIsInstance(reply, str)
+        self.assertIn("lock_guard", reply)
 
 
 class ChromeArgsTests(unittest.TestCase):

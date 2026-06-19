@@ -124,10 +124,26 @@ mode for follow-ups like *"scroll down"* or *"click the first result"*. Say
 *"close the browser"* or *"stop browsing"* to end it. The trigger phrases live in
 [`browser_mcp.py`](browser_mcp.py).
 
+**Fast path for C++ docs.** C++ reference lookups skip the slow agentic loop
+(snapshot → reason → click → read). Alongside the Playwright tools, each browsing
+turn also gets one dedicated tool, `open_cppreference`, backed by a tiny stdlib
+stdio MCP server ([`cppreference_mcp.py`](cppreference_mcp.py)). Ask for any C++
+symbol or concept — *"show me lock_guard"*, *"open the docs for std::sort"*,
+*"what's the RAII mutex wrapper"* — and Claude passes the rough symbol straight
+to that tool. cppreference runs on MediaWiki, so its go-search endpoint resolves
+the loose symbol to the exact page **server-side** (you never need the
+non-obvious path, e.g. `lock_guard` lives under `/w/cpp/thread/lock_guard`); the
+tool does a single navigate of the same owned Chrome — no snapshot, no read-back
+— so it stays fast even on a small model. It reuses the live CDP connection via
+Playwright when that's installed, and otherwise drives the CDP endpoint directly
+with no extra `pip install`. The window stays open and you stay in browsing mode,
+so follow-ups like *"scroll down"* still work.
+
 The first browse is slow (it fetches the Playwright MCP package via `npx` and
 launches Chrome); later ones reuse the same window. The browser uses a persistent
-profile, so logins stick. Browsing works best with a capable model (Sonnet or
-Opus) — small models sometimes answer from memory instead of actually browsing.
+profile, so logins stick. Agentic browsing works best with a capable model
+(Sonnet or Opus) — small models sometimes answer from memory instead of actually
+browsing — but the C++ fast path above stays quick on any model.
 Because the assistant runs Claude with skip-permissions (see the warning above),
 a browsing agent can click and submit forms on your behalf — keep it to sites you
 trust.

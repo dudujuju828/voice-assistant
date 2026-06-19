@@ -36,6 +36,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 import urllib.request
 from typing import Optional
 
@@ -80,6 +81,13 @@ _BROWSE_TRIGGERS = (
     "find the documentation",
     "find the docs",
     "show me online",
+    # C++ documentation requests route through the fast cppreference path (see
+    # ``open_cppreference``); these get the browser attached so the tool exists.
+    "cppreference",
+    "the docs for",
+    "the documentation for",
+    "the reference for",
+    "reference page for",
 )
 
 # Phrases that end browsing mode (and close the window).
@@ -161,9 +169,121 @@ def build_stdio_mcp_config(cdp_port: int) -> dict:
                 "command": command,
                 "args": prefix
                 + ["-y", "@playwright/mcp@latest", "--cdp-endpoint", endpoint],
-            }
+            },
+            # The fast C++ docs path: one tool that navigates this same owned
+            # Chrome straight to cppreference, no agentic snapshot/click loop.
+            "cppreference": build_cppreference_mcp_server(endpoint),
         }
     }
+
+
+def build_cppreference_mcp_server(cdp_endpoint: str) -> dict:
+    """Claude ``--mcp-config`` entry for the in-repo cppreference fast-path tool.
+
+    A tiny stdio MCP server (``cppreference_mcp.py``) run with this app's own
+    Python interpreter. It exposes a single tool, ``open_cppreference``, that
+    navigates the same app-owned Chrome (over ``cdp_endpoint``) directly to the
+    docs. No npx/Node and no extra Chrome — it shares the one we already own.
+    """
+    script = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "cppreference_mcp.py"
+    )
+    return {
+        "command": sys.executable,
+        "args": [script, "--cdp-endpoint", cdp_endpoint],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Fast path: cppreference
+# ---------------------------------------------------------------------------
+# C++ documentation requests skip the agentic snapshot -> reason -> click ->
+# read loop. The model is already in the loop every turn, so inferring the symbol
+# ("the scoped mutex thing" -> lock_guard) is free; it just needs a tool to say
+# it. cppreference runs on MediaWiki, whose go-search endpoint resolves a loose
+# symbol to the exact page SERVER-SIDE, so the model passes only a rough symbol,
+# never the (non-obvious) page path -- e.g. lock_guard lives under
+# /w/cpp/thread/lock_guard. One navigate, no snapshot, no read-back.
+
+
+def build_cppreference_url(query: str) -> str:
+    """Build the cppreference go-search URL for a loose C++ symbol or concept.
+
+    MediaWiki's ``Special:Search`` with ``go=Go`` jumps straight to the matching
+    article, so the caller passes a rough symbol (``lock_guard``, ``std::sort``)
+    rather than a page path.
+    """
+    encoded = urllib.parse.quote(query.strip())
+    return (
+        "https://en.cppreference.com/mwiki/index.php"
+        f"?title=Special:Search&search={encoded}&go=Go"
+    )
+
+
+async def open_cppreference(cdp_endpoint: str, query: str) -> str:
+    """Navigate the app-owned Chrome to the cppreference page for ``query``.
+
+    Tries Playwright first (reusing the live tab over CDP, as Playwright MCP
+    does); if Playwright is not installed or fails, falls back to the
+    dependency-free CDP HTTP endpoint (opens the page in a new tab of the *same*
+    owned window). Never launches a second Chrome, never snapshots or reads the
+    page, and never raises -- on any failure it returns a spoken-safe message.
+    Returns a short, text-to-speech-friendly confirmation.
+    """
+    spoken = query.strip() or "C++"
+    url = build_cppreference_url(query)
+    try:
+        if await _navigate_via_playwright(cdp_endpoint, url):
+            return f"Opening the {spoken} reference."
+    except Exception as exc:  # nav error -- fall back, don't crash
+        logger.warning("cppreference Playwright navigation failed: %s", exc)
+    try:
+        _navigate_via_cdp_http(cdp_endpoint, url)
+        return f"Opening the {spoken} reference."
+    except Exception as exc:
+        logger.warning("cppreference navigation failed: %s", exc)
+        return f"Sorry, I couldn't open the {spoken} reference just now."
+
+
+async def _navigate_via_playwright(cdp_endpoint: str, url: str) -> bool:
+    """Navigate the owned Chrome by reusing its tab over CDP via Playwright.
+
+    Returns True on success, False if Playwright is not installed (so the caller
+    falls back). Raises only on a genuine navigation error. The app-owned Chrome
+    is never closed -- we only drop our CDP connection when the driver stops.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except Exception:
+        return False
+    async with async_playwright() as pw:
+        browser = await pw.chromium.connect_over_cdp(cdp_endpoint)
+        context = (
+            browser.contexts[0] if browser.contexts else await browser.new_context()
+        )
+        page = context.pages[0] if context.pages else await context.new_page()
+        await page.goto(url, wait_until="domcontentloaded")
+    # Leaving the async_playwright() block stops the driver and drops our CDP
+    # connection; Chrome is a separate process we own, so it stays open.
+    return True
+
+
+def _navigate_via_cdp_http(cdp_endpoint: str, url: str) -> None:
+    """Dependency-free fallback: open ``url`` in a new tab of the owned Chrome.
+
+    Uses the CDP HTTP endpoint (stdlib only). Modern Chrome requires PUT for
+    ``/json/new``; older builds accept GET. Raises if neither works.
+    """
+    target = f"{cdp_endpoint.rstrip('/')}/json/new?{url}"
+    last_error: Optional[Exception] = None
+    for method in ("PUT", "GET"):
+        try:
+            request = urllib.request.Request(target, method=method)
+            urllib.request.urlopen(request, timeout=5).read()
+            return
+        except Exception as exc:
+            last_error = exc
+    raise last_error if last_error else RuntimeError("CDP navigation failed.")
 
 
 def resolve_browser_rect(device: Optional[str]) -> Optional[tuple]:

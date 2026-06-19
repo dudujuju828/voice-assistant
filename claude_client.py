@@ -70,7 +70,15 @@ BROWSER_PROMPT = (
     "give a short spoken summary, two or three sentences, of what you found or "
     "did. Never read out long lists, web addresses, or raw page text; summarize "
     "and offer to go deeper. The browser stays open for them to read, so you do "
-    "not need to close it."
+    "not need to close it.\n\n"
+    "There is one shortcut you must always take for C plus plus. For any "
+    "question about a C plus plus symbol, header, or standard library feature, "
+    "like a smart pointer or a scoped lock, do not search or click around. Just "
+    "call the open_cppreference tool once with the symbol or a short "
+    "description, for example lock_guard or scoped mutex, and it jumps straight "
+    "to the right page. You have already worked out which symbol they mean, so "
+    "pass that, never a web address. Use open_cppreference for every C plus plus "
+    "documentation or reference question, then give your short spoken summary."
 )
 
 
