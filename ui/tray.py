@@ -29,6 +29,7 @@ class Tray(QSystemTrayIcon):
     open_settings = Signal()
     reset_session = Signal()
     toggle_pause = Signal(bool)
+    restart_requested = Signal()
     quit_requested = Signal()
 
     def __init__(self) -> None:
@@ -51,6 +52,10 @@ class Tray(QSystemTrayIcon):
         menu.addAction(self._pause_action)
 
         menu.addSeparator()
+
+        self._restart_action = QAction("Restart Voice Assistant", menu)
+        self._restart_action.triggered.connect(self.restart_requested.emit)
+        menu.addAction(self._restart_action)
 
         self._quit_action = QAction("Quit", menu)
         self._quit_action.triggered.connect(self.quit_requested.emit)

@@ -5,6 +5,7 @@ import os
 
 import requests
 from dotenv import load_dotenv
+from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -143,6 +144,9 @@ def _number_input(
 
 
 class SettingsDialog(QDialog):
+    # Emitted when the user asks to relaunch the app (after settings are saved).
+    restart_requested = Signal()
+
     def __init__(self, config, parent=None) -> None:
         super().__init__(parent)
         self._config = config
@@ -317,6 +321,12 @@ class SettingsDialog(QDialog):
         buttons = QDialogButtonBox(
             QDialogButtonBox.Save | QDialogButtonBox.Cancel, self
         )
+        # Saves first so any pending changes apply after the relaunch.
+        self._restart_button = buttons.addButton(
+            "Save && Restart", QDialogButtonBox.ActionRole
+        )
+        self._restart_button.setToolTip("Save settings, then close and relaunch the app.")
+        self._restart_button.clicked.connect(self._on_restart)
         buttons.accepted.connect(self._on_save)
         buttons.rejected.connect(self.reject)
         form.addRow(buttons)
@@ -332,6 +342,17 @@ class SettingsDialog(QDialog):
             self._voice_sample_input.setText(path)
 
     def _on_save(self) -> None:
+        if self._save():
+            self.accept()
+
+    def _on_restart(self) -> None:
+        # Persist first so the new process starts with the latest settings.
+        if self._save():
+            self.restart_requested.emit()
+            self.accept()
+
+    def _save(self) -> bool:
+        """Collect the form and persist it. Returns True on success."""
         updates = {}
         device = self._monitor_combo.currentData()
         if device is not None:
@@ -377,5 +398,5 @@ class SettingsDialog(QDialog):
                 "Voice Assistant",
                 f"Could not save settings:\n{exc}",
             )
-            return
-        self.accept()
+            return False
+        return True

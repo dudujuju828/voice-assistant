@@ -397,5 +397,47 @@ class AskWorkerScreenshotTests(unittest.TestCase):
         self.assertEqual(client.calls, [("q", "C:/shot.png")])
 
 
+class RestartTests(unittest.TestCase):
+    def _assistant(self):
+        assistant = VoiceAssistant.__new__(VoiceAssistant)
+        assistant._hotkey = SimpleNamespace(unregister=lambda: events.append("unhook"))
+        assistant._single_instance = SimpleNamespace(
+            close=lambda: events.append("mutex_released")
+        )
+        assistant._tray = SimpleNamespace(
+            hide=lambda: events.append("hide"),
+            notify=lambda *a: events.append(("notify", a)),
+        )
+        assistant._app = SimpleNamespace(quit=lambda: events.append("quit"))
+        events: list = []
+        assistant._events = events
+        return assistant
+
+    def test_restart_releases_resources_relaunches_and_quits(self) -> None:
+        assistant = self._assistant()
+
+        with patch("main.subprocess.Popen") as popen, patch("main.logger.info"):
+            assistant._restart()
+
+        popen.assert_called_once()
+        # Mutex + hotkey must be released before the relaunch so the new
+        # instance can claim them; the old process then quits.
+        self.assertIn("unhook", assistant._events)
+        self.assertIn("mutex_released", assistant._events)
+        self.assertIn("quit", assistant._events)
+
+    def test_restart_failure_keeps_app_running_and_notifies(self) -> None:
+        assistant = self._assistant()
+
+        with (
+            patch("main.subprocess.Popen", side_effect=OSError("nope")),
+            patch("main.logger.warning"),
+        ):
+            assistant._restart()
+
+        self.assertTrue(any(e[0] == "notify" for e in assistant._events if isinstance(e, tuple)))
+        self.assertNotIn("quit", assistant._events)
+
+
 if __name__ == "__main__":
     unittest.main()

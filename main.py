@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
+import subprocess
 import sys
 import threading
 import time
@@ -166,9 +168,12 @@ class SpeakWorker(QThread):
 
 
 class VoiceAssistant(QObject):
-    def __init__(self, app: QApplication) -> None:
+    def __init__(self, app: QApplication, single_instance=None) -> None:
         super().__init__()
         self._app = app
+        # Held so a user-requested restart can release the mutex before
+        # relaunching (otherwise the new instance sees us and exits).
+        self._single_instance = single_instance
         self._config = Config()
         self._config.ensure_capture_monitor()
 
@@ -215,6 +220,7 @@ class VoiceAssistant(QObject):
         self._tray.open_settings.connect(self._open_settings)
         self._tray.reset_session.connect(self._reset_claude_session)
         self._tray.toggle_pause.connect(self._on_pause_toggled)
+        self._tray.restart_requested.connect(self._restart)
         self._tray.quit_requested.connect(self._quit)
         clipboard = self._app.clipboard()
         if clipboard:
@@ -534,7 +540,15 @@ class VoiceAssistant(QObject):
 
     def _open_settings(self) -> None:
         dialog = SettingsDialog(self._config)
+        # Restart is deferred until the modal dialog closes, so we don't tear
+        # the app down from inside its event loop.
+        restart_requested = {"value": False}
+        dialog.restart_requested.connect(
+            lambda: restart_requested.__setitem__("value", True)
+        )
         dialog.exec()
+        if restart_requested["value"]:
+            self._restart()
 
     def _reset_claude_session(self) -> None:
         self._config.session_id = None
@@ -552,6 +566,37 @@ class VoiceAssistant(QObject):
                 "Hotkey unavailable",
                 "Could not reinstall the keyboard hook for the hotkey.",
             )
+
+    def _restart(self) -> None:
+        """Relaunch the app in a fresh process, then quit this one.
+
+        Releases the keyboard hook and the single-instance mutex first so the
+        new process can claim them, then spawns a detached instance using the
+        same (venv) interpreter so it stays windowless and keeps our packages.
+        """
+        logger.info("Restarting Voice Assistant by user request.")
+        try:
+            # Prefer the venv's windowless pythonw so no console window pops up.
+            exe = os.path.join(sys.prefix, "Scripts", "pythonw.exe")
+            if not os.path.exists(exe):
+                exe = sys.executable
+            script = os.path.abspath(sys.argv[0])
+            if self._hotkey is not None:
+                self._hotkey.unregister()
+            if self._single_instance is not None:
+                self._single_instance.close()
+            subprocess.Popen(
+                [exe, script],
+                cwd=os.path.dirname(script),
+                creationflags=getattr(subprocess, "DETACHED_PROCESS", 0x00000008),
+                close_fds=True,
+            )
+        except Exception as exc:
+            logger.warning("Restart failed: %s", exc)
+            self._tray.notify("Voice Assistant", f"Could not restart: {exc}")
+            return
+        self._tray.hide()
+        self._app.quit()
 
     def _quit(self) -> None:
         if self._hotkey is not None:
@@ -580,7 +625,9 @@ def main() -> int:
         )
         return 1
 
-    assistant = VoiceAssistant(app)  # noqa: F841 (kept alive for app lifetime)
+    # Pass the single-instance guard so a user-triggered restart can release
+    # the mutex before relaunching.
+    assistant = VoiceAssistant(app, single_instance)  # noqa: F841 (kept alive)
     try:
         return app.exec()
     finally:
