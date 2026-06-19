@@ -140,6 +140,11 @@ class ClaudeClient:
             "json",
             "--append-system-prompt",
             system_prompt,
+            # Headless (-p) mode can't show permission prompts, so without this
+            # any tool use (writing files, running commands) is denied. The voice
+            # assistant is meant to act freely on the user's behalf, so it always
+            # bypasses permission checks.
+            "--dangerously-skip-permissions",
         ]
         if self._config.claude_effort != "default":
             cmd += ["--effort", self._config.claude_effort]

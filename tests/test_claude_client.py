@@ -125,6 +125,23 @@ class ClaudeClientParseTests(unittest.TestCase):
         effort_index = command.index("--effort")
         self.assertEqual(command[effort_index + 1], "high")
 
+    def test_run_turn_bypasses_permissions(self) -> None:
+        # Headless mode can't prompt, so the voice assistant always passes
+        # --dangerously-skip-permissions to act on the user's behalf.
+        client = self._client()
+        client._claude_path = "claude"
+        completed = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps({"result": "ok", "session_id": "s"}),
+        )
+
+        with patch("claude_client.subprocess.run", return_value=completed) as run:
+            client._run_turn("prompt", None, None)
+
+        command = run.call_args.args[0]
+        self.assertIn("--dangerously-skip-permissions", command)
+
     def test_screenshot_prompt_appended_only_with_screenshot(self) -> None:
         client = self._client()
         client._claude_path = "claude"
