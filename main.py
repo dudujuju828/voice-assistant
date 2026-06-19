@@ -67,7 +67,7 @@ class AskWorker(QThread):
         question: str,
         device: str | None,
         include_screenshot: bool,
-        browser_server: "browser_mcp.BrowserMcpServer | None" = None,
+        browser_server: "browser_mcp.BrowserSession | None" = None,
     ) -> None:
         super().__init__()
         self._client = client
@@ -200,7 +200,7 @@ class VoiceAssistant(QObject):
         # (tools stay attached across turns) until an exit phrase. The MCP server
         # is created lazily on the first browse and owned for the app's lifetime.
         self._browsing = False
-        self._browser_server: browser_mcp.BrowserMcpServer | None = None
+        self._browser_server: browser_mcp.BrowserSession | None = None
         self._active_capture_method: str | None = None
         self._clipboard_capture_active = False
         self._clipboard_changed_during_capture = False
@@ -427,7 +427,7 @@ class VoiceAssistant(QObject):
         if not self._browsing:
             return None
         if self._browser_server is None:
-            self._browser_server = browser_mcp.BrowserMcpServer(self._config)
+            self._browser_server = browser_mcp.BrowserSession(self._config)
         return self._browser_server
 
     def _stop_browser_server(self) -> None:

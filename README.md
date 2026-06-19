@@ -99,9 +99,12 @@ picker and a voice-sample field for Chatterbox cloning — see
 ### Agentic browsing (Claude-driven Chrome)
 
 The assistant can open a real Chrome window and **browse the web for you** —
-search, open pages, click, and read — while you watch it happen. It's powered by
-[Playwright MCP](https://github.com/microsoft/playwright-mcp): the app runs a
-local MCP server that Claude connects to and drives with browser tools.
+search, open pages, click, and read — while you watch it happen. The app launches
+a Chrome window (with remote debugging) on your chosen monitor and owns it, and
+each browsing turn Claude drives it with browser tools from
+[Playwright MCP](https://github.com/microsoft/playwright-mcp), attached over the
+Chrome DevTools Protocol. Because the app owns the window, it stays open between
+turns for you to read.
 
 **Prerequisites:** [Node.js](https://nodejs.org) on PATH (the server runs via
 `npx`) and Google Chrome installed. Nothing to `pip install`.
@@ -121,11 +124,13 @@ mode for follow-ups like *"scroll down"* or *"click the first result"*. Say
 *"close the browser"* or *"stop browsing"* to end it. The trigger phrases live in
 [`browser_mcp.py`](browser_mcp.py).
 
-The first browse is slow (it downloads the MCP server and launches Chrome);
-later ones reuse the same window. The browser shares a persistent profile, so
-logins stick. Because the assistant runs Claude with skip-permissions (see the
-warning above), a browsing agent can click and submit forms on your behalf —
-keep it to sites you trust.
+The first browse is slow (it fetches the Playwright MCP package via `npx` and
+launches Chrome); later ones reuse the same window. The browser uses a persistent
+profile, so logins stick. Browsing works best with a capable model (Sonnet or
+Opus) — small models sometimes answer from memory instead of actually browsing.
+Because the assistant runs Claude with skip-permissions (see the warning above),
+a browsing agent can click and submit forms on your behalf — keep it to sites you
+trust.
 
 ### Local TTS (offline)
 

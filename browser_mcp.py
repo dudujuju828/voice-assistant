@@ -1,21 +1,30 @@
-"""Agentic browsing: an app-owned Playwright MCP server Claude can drive.
+"""Agentic browsing: an app-owned Chrome that Claude drives via Playwright MCP.
 
 The voice assistant already runs Claude as a headless, tool-using agent (see
-``claude_client``). This module gives that agent a *web browser* to use: it
-launches Microsoft's Playwright MCP server (``@playwright/mcp`` via ``npx``) as a
-long-lived process bound to a local SSE port. On a browsing turn the app passes
-Claude an ``--mcp-config`` pointing at that port, so Claude gets browser tools
-(navigate / click / type / read) and does the navigation itself.
+``claude_client``). This module gives that agent a *web browser* to use, in a way
+that keeps the window open on screen for the user to read.
 
-Why a persistent server rather than a per-turn one: a stdio MCP server dies with
-the ``claude -p`` subprocess, which would close the browser the moment the turn
-ends. A long-lived server with ``--shared-browser-context`` keeps the same Chrome
-window open across turns — so the page stays on screen for the user to read, and
-follow-ups ("scroll down", "click that") continue in the same session.
+Design (two decoupled pieces):
 
-Heavy / OS bits (the npx subprocess, win32 monitor geometry) are kept behind
-functions so the pure pieces — intent detection and config generation — import
-and unit-test anywhere without Node or Windows.
+1. **App-owned Chrome.** This module launches a real Chrome with remote debugging
+   enabled (CDP), placed on the user's chosen monitor, and owns its lifetime —
+   so the window persists across turns and is closed only on quit/restart.
+
+2. **Per-turn stdio MCP server.** On a browsing turn the app passes Claude an
+   ``--mcp-config`` describing a *stdio* Playwright MCP server (spawned via
+   ``cmd /c npx`` on Windows) pointed at the Chrome's CDP endpoint with
+   ``--cdp-endpoint``. Claude spawns that server itself, it attaches to the
+   already-open Chrome, drives it, and is torn down when the turn ends — but the
+   Chrome stays up because *we* own it, not the MCP server.
+
+Why this shape: ``--mcp-config`` over HTTP/SSE does not connect from the CLI's
+headless ``-p`` mode (verified — the server never receives a connection), whereas
+a stdio server spawned by Claude works reliably. But a stdio server's own browser
+would die with the turn, so we host the browser ourselves and attach over CDP.
+
+Heavy / OS bits (the Chrome subprocess, win32 monitor geometry) are kept behind
+functions so the pure pieces — intent detection and config/arg generation —
+import and unit-test anywhere without Chrome, Node, or Windows.
 """
 from __future__ import annotations
 
@@ -23,11 +32,11 @@ import json
 import logging
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import threading
 import time
+import urllib.request
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -36,9 +45,17 @@ _NO_WINDOW = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 _RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".runtime")
 
+# Common Chrome install locations on Windows.
+_CHROME_CANDIDATES = (
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    os.path.join(
+        os.environ.get("LOCALAPPDATA", ""), r"Google\Chrome\Application\chrome.exe"
+    ),
+)
+
 # Phrases that mark a turn as a browsing request. Deterministic and cheap, so a
-# normal turn pays no latency. Matched as substrings against the lowered text;
-# add to this list to broaden coverage.
+# normal turn pays no latency. Matched as substrings against the lowered text.
 _BROWSE_TRIGGERS = (
     "open the browser",
     "open a browser",
@@ -89,49 +106,68 @@ def looks_like_browse_exit(text: str) -> bool:
     return any(trigger in lowered for trigger in _BROWSE_EXIT_TRIGGERS)
 
 
-def build_playwright_config(headless: bool, rect: Optional[tuple]) -> dict:
-    """Playwright MCP ``--config`` payload: Chrome channel + window placement.
+def find_chrome() -> Optional[str]:
+    """Locate chrome.exe (standard install dirs, then PATH)."""
+    for path in _CHROME_CANDIDATES:
+        if path and os.path.isfile(path):
+            return path
+    return shutil.which("chrome") or shutil.which("chrome.exe")
 
-    ``rect`` is (left, top, width, height) of the target monitor; when headed we
-    position and size the window to fill that monitor (minus a margin) so it
-    opens on the screen the user picked. Ignored when headless.
-    """
-    launch: dict = {"channel": "chrome", "headless": bool(headless)}
-    if not headless and rect:
+
+def build_chrome_args(
+    chrome: str,
+    cdp_port: int,
+    profile_dir: str,
+    headless: bool,
+    rect: Optional[tuple],
+) -> list:
+    """Command line for the app-owned Chrome (CDP enabled, placed on a monitor)."""
+    args = [
+        chrome,
+        f"--remote-debugging-port={cdp_port}",
+        f"--user-data-dir={profile_dir}",
+        "--no-first-run",
+        "--no-default-browser-check",
+    ]
+    if headless:
+        args.append("--headless=new")
+    elif rect:
         left, top, width, height = rect
         margin = 40
-        win_w = max(640, width - 2 * margin)
-        win_h = max(480, height - 2 * margin)
-        launch["args"] = [
-            f"--window-position={left + margin},{top + margin}",
-            f"--window-size={win_w},{win_h}",
-        ]
-    return {"browser": {"browserName": "chromium", "launchOptions": launch}}
+        args.append(f"--window-position={left + margin},{top + margin}")
+        args.append(
+            f"--window-size={max(640, width - 2 * margin)},"
+            f"{max(480, height - 2 * margin)}"
+        )
+    args.append("about:blank")
+    return args
 
 
-def build_claude_mcp_config(port: int) -> dict:
-    """Claude Code ``--mcp-config`` payload pointing at the MCP server.
+def build_stdio_mcp_config(cdp_port: int) -> dict:
+    """Claude ``--mcp-config`` payload: a stdio Playwright MCP attached over CDP.
 
-    Uses the streamable-HTTP ``/mcp`` endpoint (the server's recommended
-    transport; ``/sse`` is legacy) on an explicit IPv4 address so it matches the
-    server's ``--host 127.0.0.1`` bind.
+    Spawned via ``cmd /c npx`` on Windows so the ``npx.cmd`` shim runs in a shell
+    (Claude's launcher cannot exec a ``.cmd`` directly). ``--cdp-endpoint`` points
+    it at our already-running Chrome rather than launching its own.
     """
+    endpoint = f"http://127.0.0.1:{cdp_port}"
+    if sys.platform == "win32":
+        command, prefix = "cmd", ["/c", "npx"]
+    else:
+        command, prefix = "npx", []
     return {
         "mcpServers": {
             "playwright": {
-                "type": "http",
-                "url": f"http://127.0.0.1:{port}/mcp",
+                "command": command,
+                "args": prefix
+                + ["-y", "@playwright/mcp@latest", "--cdp-endpoint", endpoint],
             }
         }
     }
 
 
 def resolve_browser_rect(device: Optional[str]) -> Optional[tuple]:
-    """Monitor rect to place the browser on; default to a secondary display.
-
-    With no saved device we prefer a non-primary monitor (so the browser opens
-    "next to" the user by default), falling back to the primary one.
-    """
+    """Monitor rect to place the browser on; default to a secondary display."""
     try:
         import monitors
     except Exception:
@@ -145,30 +181,26 @@ def resolve_browser_rect(device: Optional[str]) -> Optional[tuple]:
 
 
 def _free_port() -> int:
+    import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
 
 
-def _port_open(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.5)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
+class BrowserSession:
+    """Lifecycle for the app-owned Chrome that Claude drives over CDP.
 
-
-class BrowserMcpServer:
-    """Lifecycle for the persistent Playwright MCP server (one per app).
-
-    Started lazily on the first browsing turn (so normal startup needs no Node
-    and pops no window) and stopped on quit/restart. ``ensure_ready`` is safe to
-    call from a worker thread — it blocks on the (potentially slow, first-run
-    npx download) startup there rather than on the UI thread.
+    Started lazily on the first browsing turn (so normal startup launches no
+    browser) and stopped on quit/restart. ``ensure_ready`` is safe to call from a
+    worker thread — it blocks on the (first-run) Chrome startup there rather than
+    on the UI thread, and returns the path to the stdio MCP config to hand Claude.
     """
 
     def __init__(self, config, runtime_dir: str = _RUNTIME_DIR) -> None:
         self._config = config
         self._runtime_dir = runtime_dir
-        self._port: Optional[int] = None
+        self._cdp_port: Optional[int] = None
         self._proc: Optional[subprocess.Popen] = None
         self._mcp_config_path: Optional[str] = None
         self._lock = threading.Lock()
@@ -180,11 +212,12 @@ class BrowserMcpServer:
     def is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
-    def ensure_ready(self, start_timeout: float = 120.0) -> bool:
-        """Start the server if needed and wait until its port accepts a socket."""
+    def ensure_ready(self, start_timeout: float = 60.0) -> bool:
+        """Launch Chrome if needed and wait until its CDP endpoint responds."""
         with self._lock:
             if not self.is_running():
-                self._start()
+                if not self._start():
+                    return False
             return self._wait_ready(start_timeout)
 
     def stop(self) -> None:
@@ -195,7 +228,6 @@ class BrowserMcpServer:
                 return
             try:
                 if sys.platform == "win32":
-                    # Kill the whole tree so the spawned Chrome closes too.
                     subprocess.run(
                         ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                         capture_output=True,
@@ -204,7 +236,7 @@ class BrowserMcpServer:
                 else:
                     proc.terminate()
             except Exception as exc:
-                logger.warning("Failed to stop browser MCP server: %s", exc)
+                logger.warning("Failed to stop browser: %s", exc)
             try:
                 proc.wait(timeout=5)
             except Exception:
@@ -215,62 +247,46 @@ class BrowserMcpServer:
 
     # --- internals ----------------------------------------------------------
 
-    def _start(self) -> None:
-        npx = shutil.which("npx") or "npx"
+    def _start(self) -> bool:
+        chrome = find_chrome()
+        if not chrome:
+            logger.warning("Chrome not found; cannot start agentic browsing.")
+            return False
         os.makedirs(self._runtime_dir, exist_ok=True)
-        self._port = _free_port()
-
-        rect = resolve_browser_rect(self._config.browser_monitor_device)
-        pw_config = build_playwright_config(self._config.browser_headless, rect)
-        pw_path = os.path.join(self._runtime_dir, "playwright-config.json")
-        self._write_json(pw_path, pw_config)
+        self._cdp_port = _free_port()
 
         mcp_path = os.path.join(self._runtime_dir, "browser-mcp.json")
-        self._write_json(mcp_path, build_claude_mcp_config(self._port))
+        with open(mcp_path, "w", encoding="utf-8") as fh:
+            json.dump(build_stdio_mcp_config(self._cdp_port), fh, indent=2)
         self._mcp_config_path = mcp_path
 
+        rect = resolve_browser_rect(self._config.browser_monitor_device)
         profile = os.path.join(self._runtime_dir, "browser-profile")
-        args = [
-            npx,
-            "-y",
-            "@playwright/mcp@latest",
-            # Bind IPv4 explicitly: the default "localhost" can bind only IPv6
-            # (::1), which our 127.0.0.1 readiness probe and Claude's connection
-            # would never reach.
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(self._port),
-            "--user-data-dir",
-            profile,
-            "--shared-browser-context",
-            "--config",
-            pw_path,
-        ]
-        logger.info("Starting browser MCP server on port %s.", self._port)
+        args = build_chrome_args(
+            chrome, self._cdp_port, profile, self._config.browser_headless, rect
+        )
+        logger.info("Launching browser with CDP on port %s.", self._cdp_port)
         self._proc = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             creationflags=_NO_WINDOW,
-            cwd=self._runtime_dir,
         )
+        return True
 
     def _wait_ready(self, timeout: float) -> bool:
-        if self._port is None:
+        if self._cdp_port is None:
             return False
+        url = f"http://127.0.0.1:{self._cdp_port}/json/version"
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if not self.is_running():
-                logger.warning("Browser MCP server exited before becoming ready.")
+                logger.warning("Browser exited before its CDP endpoint came up.")
                 return False
-            if _port_open(self._port):
+            try:
+                urllib.request.urlopen(url, timeout=1).read()
                 return True
-            time.sleep(0.25)
-        logger.warning("Browser MCP server not ready after %.0fs.", timeout)
+            except Exception:
+                time.sleep(0.25)
+        logger.warning("Browser CDP endpoint not ready after %.0fs.", timeout)
         return False
-
-    @staticmethod
-    def _write_json(path: str, payload: dict) -> None:
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2)

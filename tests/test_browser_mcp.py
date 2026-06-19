@@ -37,32 +37,43 @@ class IntentDetectionTests(unittest.TestCase):
         self.assertFalse(browser_mcp.looks_like_browse_exit("close the modal dialog"))
 
 
-class ConfigGenerationTests(unittest.TestCase):
-    def test_claude_mcp_config_points_at_http_port(self) -> None:
-        cfg = browser_mcp.build_claude_mcp_config(9123)
+class StdioMcpConfigTests(unittest.TestCase):
+    def test_stdio_config_attaches_to_cdp_endpoint(self) -> None:
+        cfg = browser_mcp.build_stdio_mcp_config(9123)
         server = cfg["mcpServers"]["playwright"]
-        self.assertEqual(server["type"], "http")
-        self.assertEqual(server["url"], "http://127.0.0.1:9123/mcp")
+        # A stdio server (has a command), not an http url.
+        self.assertIn("command", server)
+        self.assertNotIn("url", server)
+        self.assertIn("@playwright/mcp@latest", server["args"])
+        self.assertIn("--cdp-endpoint", server["args"])
+        idx = server["args"].index("--cdp-endpoint")
+        self.assertEqual(server["args"][idx + 1], "http://127.0.0.1:9123")
 
-    def test_headed_config_places_window_on_monitor(self) -> None:
+
+class ChromeArgsTests(unittest.TestCase):
+    def test_headed_places_window_on_monitor(self) -> None:
         # rect = (left, top, width, height) of a secondary monitor.
-        cfg = browser_mcp.build_playwright_config(False, (1920, 0, 1920, 1080))
-        launch = cfg["browser"]["launchOptions"]
-        self.assertEqual(launch["channel"], "chrome")
-        self.assertFalse(launch["headless"])
-        args = launch["args"]
+        args = browser_mcp.build_chrome_args(
+            "chrome.exe", 9222, "C:/profile", False, (1920, 0, 1920, 1080)
+        )
+        self.assertIn("--remote-debugging-port=9222", args)
+        self.assertIn("--user-data-dir=C:/profile", args)
         self.assertIn("--window-position=1960,40", args)  # left+margin, top+margin
         self.assertIn("--window-size=1840,1000", args)  # width-2m, height-2m
+        self.assertNotIn("--headless=new", args)
 
-    def test_headless_config_omits_window_args(self) -> None:
-        cfg = browser_mcp.build_playwright_config(True, (1920, 0, 1920, 1080))
-        launch = cfg["browser"]["launchOptions"]
-        self.assertTrue(launch["headless"])
-        self.assertNotIn("args", launch)
+    def test_headless_omits_window_args_and_adds_headless(self) -> None:
+        args = browser_mcp.build_chrome_args(
+            "chrome.exe", 9222, "C:/profile", True, (1920, 0, 1920, 1080)
+        )
+        self.assertIn("--headless=new", args)
+        self.assertFalse(any(a.startswith("--window-position") for a in args))
 
     def test_headed_without_rect_omits_window_args(self) -> None:
-        cfg = browser_mcp.build_playwright_config(False, None)
-        self.assertNotIn("args", cfg["browser"]["launchOptions"])
+        args = browser_mcp.build_chrome_args(
+            "chrome.exe", 9222, "C:/profile", False, None
+        )
+        self.assertFalse(any(a.startswith("--window-position") for a in args))
 
 
 if __name__ == "__main__":
