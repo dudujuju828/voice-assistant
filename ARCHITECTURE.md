@@ -231,3 +231,38 @@ voice-assistant/
 1. Tray + push-to-talk hook + idle. 2. Silent capture (clipboard / hidden input) works with Wispr. 3. Monitor enumerate + settings + capture. 4. Claude subprocess turn (text only, then with screenshot). 5. ElevenLabs streaming playback. 6. StatusOverlay dot polish.
 ```
 ```
+
+---
+
+## ADDED FEATURES (beyond the MVP manifest)
+
+The MVP manifest above is the original scaffold. Subsequent features each added
+a small, self-contained module (with intent detection kept pure for testing),
+matching the same conventions:
+
+| Feature | Files | Notes |
+|---|---|---|
+| **Agentic browsing** | `browser_mcp.py`, `cppreference_mcp.py` | App-owned Chrome (CDP) + per-turn Playwright MCP; intent detection (`looks_like_browse_request`) routes turns. |
+| **Live transcript page** | `transcript.py`, `transcript_server.py`, `ui/transcript.html` | Every turn recorded to `%APPDATA%\VoiceAssistant\transcripts\*.json`. A stdlib `ThreadingHTTPServer` on `127.0.0.1` serves a self-contained page that follows the live state over **Server-Sent Events** (mirroring the tray dot), plus a browsable history sidebar and Markdown/text/JSON downloads. The `TranscriptStore` is thread-safe (Qt thread writes, HTTP threads read) and never raises into a turn. |
+| **Coding mode** | `coding.py` (+ `claude_client` `coding_cwd`) | When enabled with a codebase path, a turn matching `looks_like_coding_request` runs Claude Code with that folder as the subprocess `cwd` and a **separate** `coding.session_id`, so it edits the project without mixing into the voice session. Screenshot skipped; browsing takes precedence. |
+
+### Config keys (added to `%APPDATA%\VoiceAssistant\config.json`)
+
+```jsonc
+{
+  "coding":     { "enabled": false, "path": "", "session_id": null },
+  "transcript": { "enabled": true,  "port": 8765 }   // port 0 = pick a free port
+}
+```
+
+### Live transcript states (Server-Sent Events)
+
+```
+begin_recording → recording   (red,   "Listening…")
+begin_processing → processing  (amber, words stream in as set_partial pushes them)
+record_user      → processing  (the finalized question becomes a pending turn)
+record_assistant → speaking    (green, reply filled in)
+set_idle         → idle        (turn finished)   |   record_error → error
+```
+Each transition pushes a fresh JSON snapshot to every open page; the same data
+backs the `/api/state` initial load and the `/api/conversations` history.

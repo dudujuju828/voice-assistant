@@ -79,6 +79,19 @@ DEFAULT_BROWSER_HEADLESS = False
 DEFAULT_BROWSER_TIMEOUT_SECONDS = 300  # browse turns run longer than normal ones
 MIN_BROWSER_TIMEOUT_SECONDS = 30
 MAX_BROWSER_TIMEOUT_SECONDS = 900
+# Coding mode: when enabled and a turn sounds like a coding / file-editing
+# request, the turn runs Claude Code with this codebase folder as the working
+# directory (its own conversation, separate from the casual voice session). Off
+# by default; a path must be set and the toggle turned on. Normal turns are
+# untouched.
+DEFAULT_CODING_ENABLED = False
+DEFAULT_CODING_PATH = ""
+# Local transcript page (live conversation view + browsable history + download).
+# Served on 127.0.0.1 only. Port 0 = pick a free port at launch.
+DEFAULT_TRANSCRIPT_ENABLED = True
+DEFAULT_TRANSCRIPT_PORT = 8765
+MIN_TRANSCRIPT_PORT = 0
+MAX_TRANSCRIPT_PORT = 65535
 LEGACY_DEFAULT_HOTKEYS = [
     (["ctrl", "shift"], "Space"),
 ]
@@ -130,6 +143,18 @@ def _default_config() -> dict[str, Any]:
             # Which display the browser window opens on (None = secondary).
             "monitor_device": None,
             "timeout_seconds": DEFAULT_BROWSER_TIMEOUT_SECONDS,
+        },
+        "coding": {
+            "enabled": DEFAULT_CODING_ENABLED,
+            # Absolute path to the codebase Claude Code edits on coding turns.
+            "path": DEFAULT_CODING_PATH,
+            # Separate Claude session for coding turns so they never mix with the
+            # casual voice conversation. null = fresh coding session next turn.
+            "session_id": None,
+        },
+        "transcript": {
+            "enabled": DEFAULT_TRANSCRIPT_ENABLED,
+            "port": DEFAULT_TRANSCRIPT_PORT,
         },
     }
 
@@ -516,6 +541,77 @@ class Config:
                 DEFAULT_BROWSER_TIMEOUT_SECONDS,
                 MIN_BROWSER_TIMEOUT_SECONDS,
                 MAX_BROWSER_TIMEOUT_SECONDS,
+            ),
+        )
+
+    @property
+    def coding_enabled(self) -> bool:
+        """Whether coding turns run Claude Code against the configured codebase."""
+        value = self.get("coding.enabled", DEFAULT_CODING_ENABLED)
+        return value if isinstance(value, bool) else DEFAULT_CODING_ENABLED
+
+    @coding_enabled.setter
+    def coding_enabled(self, value: bool) -> None:
+        self.set("coding.enabled", bool(value))
+
+    @property
+    def coding_path(self) -> str:
+        """Codebase folder used as the working directory for coding turns."""
+        value = self.get("coding.path", DEFAULT_CODING_PATH)
+        return value.strip() if isinstance(value, str) else DEFAULT_CODING_PATH
+
+    @coding_path.setter
+    def coding_path(self, value: str) -> None:
+        self.set(
+            "coding.path",
+            value.strip() if isinstance(value, str) else DEFAULT_CODING_PATH,
+        )
+
+    @property
+    def coding_session_id(self) -> str | None:
+        """Persistent Claude session id for coding turns (None = fresh)."""
+        value = self.get("coding.session_id")
+        if not isinstance(value, str):
+            return None
+        return value.strip() or None
+
+    @coding_session_id.setter
+    def coding_session_id(self, value: str | None) -> None:
+        if isinstance(value, str):
+            value = value.strip() or None
+        else:
+            value = None
+        self.set("coding.session_id", value)
+
+    @property
+    def transcript_enabled(self) -> bool:
+        """Whether the local transcript web page is served."""
+        value = self.get("transcript.enabled", DEFAULT_TRANSCRIPT_ENABLED)
+        return value if isinstance(value, bool) else DEFAULT_TRANSCRIPT_ENABLED
+
+    @transcript_enabled.setter
+    def transcript_enabled(self, value: bool) -> None:
+        self.set("transcript.enabled", bool(value))
+
+    @property
+    def transcript_port(self) -> int:
+        """Localhost port for the transcript page (0 = pick a free port)."""
+        return _bounded_int(
+            self.get("transcript.port"),
+            DEFAULT_TRANSCRIPT_PORT,
+            MIN_TRANSCRIPT_PORT,
+            MAX_TRANSCRIPT_PORT,
+        )
+
+    @transcript_port.setter
+    def transcript_port(self, value: int) -> None:
+        self.set(
+            "transcript.port",
+            _bounded_int(
+                value,
+                DEFAULT_TRANSCRIPT_PORT,
+                MIN_TRANSCRIPT_PORT,
+                MAX_TRANSCRIPT_PORT,
             ),
         )
 

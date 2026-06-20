@@ -27,9 +27,11 @@ import monitors
 from config import (
     MAX_BROWSER_TIMEOUT_SECONDS,
     MAX_CLAUDE_TIMEOUT_SECONDS,
+    MAX_TRANSCRIPT_PORT,
     MAX_TTS_REQUEST_TIMEOUT_SECONDS,
     MIN_BROWSER_TIMEOUT_SECONDS,
     MIN_CLAUDE_TIMEOUT_SECONDS,
+    MIN_TRANSCRIPT_PORT,
     MIN_TTS_REQUEST_TIMEOUT_SECONDS,
 )
 
@@ -351,6 +353,55 @@ class SettingsDialog(QDialog):
         self._browser_timeout_input.setValue(config.browser_timeout_seconds)
         form.addRow("Browse turn timeout:", self._browser_timeout_input)
 
+        # --- coding mode (run Claude Code against a codebase) ---
+        self._coding_enabled_check = QCheckBox(
+            "Run coding / file-editing requests against a codebase", self
+        )
+        self._coding_enabled_check.setChecked(config.coding_enabled)
+        self._coding_enabled_check.setToolTip(
+            "When on, a turn that sounds like a coding task (e.g. \"edit the cpp "
+            "file\") runs Claude Code inside the codebase folder below. Normal "
+            "turns are unaffected."
+        )
+        form.addRow("Coding mode:", self._coding_enabled_check)
+
+        self._coding_path_input = QLineEdit(config.coding_path, self)
+        self._coding_path_input.setPlaceholderText(
+            "Absolute path to the codebase, e.g. C:\\dev\\my-project"
+        )
+        self._coding_path_input.setToolTip(
+            "Claude Code uses this folder as the working directory / project for "
+            "coding turns."
+        )
+        browse_codebase = QPushButton("Browse…", self)
+        browse_codebase.clicked.connect(self._browse_codebase)
+        codebase_row = QWidget(self)
+        codebase_layout = QHBoxLayout(codebase_row)
+        codebase_layout.setContentsMargins(0, 0, 0, 0)
+        codebase_layout.addWidget(self._coding_path_input)
+        codebase_layout.addWidget(browse_codebase)
+        form.addRow("Codebase path:", codebase_row)
+
+        # --- transcript page (live conversation view + history) ---
+        self._transcript_enabled_check = QCheckBox(
+            "Record transcripts and serve the live page", self
+        )
+        self._transcript_enabled_check.setChecked(config.transcript_enabled)
+        self._transcript_enabled_check.setToolTip(
+            "Records each turn and serves a live local web page (history + "
+            "download). Open it from the tray menu. Served on 127.0.0.1 only."
+        )
+        form.addRow("Transcript:", self._transcript_enabled_check)
+
+        self._transcript_port_input = QSpinBox(self)
+        self._transcript_port_input.setRange(MIN_TRANSCRIPT_PORT, MAX_TRANSCRIPT_PORT)
+        self._transcript_port_input.setSpecialValueText("Auto (free port)")
+        self._transcript_port_input.setValue(config.transcript_port)
+        self._transcript_port_input.setToolTip(
+            "Localhost port for the transcript page. 0 picks a free port."
+        )
+        form.addRow("Transcript port:", self._transcript_port_input)
+
         # --- info ---
         info = QLabel("Settings are saved to %APPDATA%\\VoiceAssistant.", self)
         info.setStyleSheet("color: gray; font-size: 11px;")
@@ -379,6 +430,15 @@ class SettingsDialog(QDialog):
         )
         if path:
             self._voice_sample_input.setText(path)
+
+    def _browse_codebase(self) -> None:
+        path = QFileDialog.getExistingDirectory(
+            self,
+            "Choose the codebase folder",
+            self._coding_path_input.text().strip() or "",
+        )
+        if path:
+            self._coding_path_input.setText(path)
 
     def _on_save(self) -> None:
         if self._save():
@@ -431,6 +491,10 @@ class SettingsDialog(QDialog):
         updates["browser.headless"] = self._browser_headless_check.isChecked()
         updates["browser.monitor_device"] = self._browser_monitor_combo.currentData()
         updates["browser.timeout_seconds"] = self._browser_timeout_input.value()
+        updates["coding.enabled"] = self._coding_enabled_check.isChecked()
+        updates["coding.path"] = self._coding_path_input.text().strip()
+        updates["transcript.enabled"] = self._transcript_enabled_check.isChecked()
+        updates["transcript.port"] = self._transcript_port_input.value()
         try:
             self._config.set_many(updates)
         except Exception as exc:

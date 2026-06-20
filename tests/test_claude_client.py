@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from claude_client import (
+    CODING_PROMPT,
     ClaudeClient,
     ClaudeError,
     SCREENSHOT_PROMPT,
@@ -16,6 +17,7 @@ from claude_client import (
 class FakeConfig:
     def __init__(self) -> None:
         self.session_id = None
+        self.coding_session_id = None
         self.claude_model = "opus"
         self.claude_effort = "default"
         self.claude_timeout_seconds = 45
@@ -200,6 +202,72 @@ class ClaudeClientParseTests(unittest.TestCase):
         without_shot = system_prompt_for(None)
         self.assertIn(SYSTEM_PROMPT, without_shot)
         self.assertNotIn(SCREENSHOT_PROMPT, without_shot)
+
+    def test_coding_turn_runs_in_cwd_with_coding_prompt_and_session(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "cs-1"}))
+
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
+            client._run_turn(
+                "prompt", None, None, None, "C:/proj", "coding_session_id"
+            )
+
+        # Runs inside the codebase folder.
+        self.assertEqual(popen.call_args.kwargs.get("cwd"), "C:/proj")
+        command = popen.call_args.args[0]
+        sysprompt = command[command.index("--append-system-prompt") + 1]
+        self.assertIn(CODING_PROMPT, sysprompt)
+        # The reply's session id lands on the *coding* session, not the voice one.
+        self.assertEqual(client._config.coding_session_id, "cs-1")
+        self.assertIsNone(client._config.session_id)
+
+    def test_normal_turn_has_no_cwd(self) -> None:
+        client = self._client()
+        client._claude_path = "claude"
+        fake = FakePopen(stdout=json.dumps({"result": "ok", "session_id": "s"}))
+
+        with patch("claude_client.subprocess.Popen", return_value=fake) as popen:
+            client._run_turn("prompt", None, None)
+
+        self.assertIsNone(popen.call_args.kwargs.get("cwd"))
+        command = popen.call_args.args[0]
+        sysprompt = command[command.index("--append-system-prompt") + 1]
+        self.assertNotIn(CODING_PROMPT, sysprompt)
+
+    def test_ask_coding_uses_coding_session_and_cwd(self) -> None:
+        client = self._client()
+        client._config.coding_session_id = "existing-coding"
+        captured = {}
+
+        def fake_run_turn(prompt, session_id, add_dir, mcp, cwd, session_attr):
+            captured.update(session_id=session_id, cwd=cwd, session_attr=session_attr)
+            return "ok"
+
+        with patch.object(client, "_run_turn", side_effect=fake_run_turn):
+            result = client.ask("edit the file", None, coding_cwd="C:/proj")
+
+        self.assertEqual(result, "ok")
+        self.assertEqual(captured["session_id"], "existing-coding")
+        self.assertEqual(captured["cwd"], "C:/proj")
+        self.assertEqual(captured["session_attr"], "coding_session_id")
+
+    def test_ask_coding_retry_clears_only_the_coding_session(self) -> None:
+        client = self._client()
+        client._config.session_id = "voice-keep"
+        client._config.coding_session_id = "coding-stale"
+
+        with patch.object(
+            client,
+            "_run_turn",
+            side_effect=[ClaudeError("No conversation found"), "ok"],
+        ) as run_turn:
+            result = client.ask("edit the file", None, coding_cwd="C:/proj")
+
+        self.assertEqual(result, "ok")
+        self.assertIsNone(client._config.coding_session_id)  # cleared + retried
+        self.assertEqual(client._config.session_id, "voice-keep")  # untouched
+        self.assertEqual(run_turn.call_count, 2)
 
     def test_ask_retries_and_clears_stale_session(self) -> None:
         client = self._client()

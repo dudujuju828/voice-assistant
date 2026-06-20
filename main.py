@@ -14,6 +14,7 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 
 # DPI awareness MUST be set before QApplication so mss bounds == physical px.
 if sys.platform == "win32":
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon  # noqa
 import app_logging  # noqa: E402
 import browser_mcp  # noqa: E402
 import capture  # noqa: E402
+import coding  # noqa: E402
 import runtime_checks  # noqa: E402
 from single_instance import SingleInstance  # noqa: E402
 import tts  # noqa: E402
@@ -41,6 +43,8 @@ from claude_client import (  # noqa: E402
 from config import Config  # noqa: E402
 from hidden_input import HiddenInput, VisibleInput  # noqa: E402
 from hotkey import HotkeyManager  # noqa: E402
+from transcript import TranscriptStore  # noqa: E402
+from transcript_server import TranscriptServer  # noqa: E402
 from ui.settings import SettingsDialog  # noqa: E402
 from ui.status_overlay import StatusOverlay  # noqa: E402
 from ui.tray import Tray  # noqa: E402
@@ -68,6 +72,7 @@ class AskWorker(QThread):
         device: str | None,
         include_screenshot: bool,
         browser_server: "browser_mcp.BrowserSession | None" = None,
+        coding_cwd: str | None = None,
     ) -> None:
         super().__init__()
         self._client = client
@@ -75,6 +80,7 @@ class AskWorker(QThread):
         self._device = device
         self._include_screenshot = include_screenshot
         self._browser_server = browser_server
+        self._coding_cwd = coding_cwd
 
     def run(self) -> None:
         shot = None
@@ -98,7 +104,9 @@ class AskWorker(QThread):
             except Exception as exc:
                 logger.warning("Browser MCP server failed to start: %s", exc)
         try:
-            reply = self._client.ask(self._question, shot, mcp_config_path)
+            reply = self._client.ask(
+                self._question, shot, mcp_config_path, self._coding_cwd
+            )
         except ClaudeError as exc:
             self.failed.emit(f"Claude error: {exc}")
             return
@@ -196,6 +204,9 @@ class VoiceAssistant(QObject):
         self._busy = False
         self._recording = False
         self._error_token = 0
+        # True while the in-flight turn is a coding turn, so the reply is linked
+        # back to the (separate) coding session in the transcript.
+        self._pending_turn_coding = False
         # Agentic browsing: once a browse is triggered we stay in browsing mode
         # (tools stay attached across turns) until an exit phrase. The MCP server
         # is created lazily on the first browse and owned for the app's lifetime.
@@ -245,6 +256,7 @@ class VoiceAssistant(QObject):
             )
 
         self._tray.open_settings.connect(self._open_settings)
+        self._tray.open_transcript.connect(self._open_transcript)
         self._tray.reset_session.connect(self._reset_claude_session)
         self._tray.toggle_pause.connect(self._on_pause_toggled)
         self._tray.restart_requested.connect(self._restart)
@@ -252,6 +264,22 @@ class VoiceAssistant(QObject):
         clipboard = self._app.clipboard()
         if clipboard:
             clipboard.dataChanged.connect(self._on_clipboard_changed)
+
+        # --- transcript: record every turn and serve a live local page ---
+        self._transcript: TranscriptStore | None = None
+        self._transcript_server: TranscriptServer | None = None
+        if self._config.transcript_enabled:
+            try:
+                self._transcript = TranscriptStore()
+                self._transcript_server = TranscriptServer(
+                    self._transcript, port=self._config.transcript_port
+                )
+                if self._transcript_server.start() is None:
+                    self._transcript_server = None
+            except Exception as exc:  # never let transcripts break startup
+                logger.warning("Transcript page unavailable: %s", exc)
+                self._transcript = None
+                self._transcript_server = None
 
         # --- Claude client ---
         self._client: ClaudeClient | None = None
@@ -305,6 +333,9 @@ class VoiceAssistant(QObject):
         self._active_capture_method = self._config.capture_method
         try:
             self._overlay.show_recording()
+            tx = self._tx()
+            if tx is not None:
+                tx.begin_recording()
             if self._active_capture_method == "clipboard":
                 self._begin_clipboard_capture()
             else:
@@ -329,6 +360,9 @@ class VoiceAssistant(QObject):
                 logger.warning("Could not re-focus capture box on release: %s", exc)
         self._start_watchdog()
         self._overlay.show_processing()
+        tx = self._tx()
+        if tx is not None:
+            tx.begin_processing()
         # Poll until the transcript settles rather than reading once at a fixed
         # delay — a long message may still be arriving from Wispr at that point.
         self._capture_gen += 1
@@ -359,6 +393,9 @@ class VoiceAssistant(QObject):
         text = self._peek_transcript()
         if text:
             self._capture_seen_text = True
+            tx = self._tx()
+            if tx is not None:
+                tx.set_partial(text)
         settled = bool(text) and text == self._capture_last_peek
         self._capture_last_peek = text
         elapsed_ms = (time.monotonic() - self._capture_started_at) * 1000
@@ -402,12 +439,23 @@ class VoiceAssistant(QObject):
             self._start_watchdog(browsing=True)
             # Mark this browse as in-flight; cleared only when it completes.
             self._browse_pending = True
+        # A coding turn runs Claude Code inside the configured codebase. Browsing
+        # is a stateful mode and takes precedence, so coding is only considered
+        # when this isn't a browse turn.
+        coding_cwd = (
+            None if browser_server is not None else self._resolve_coding_for_turn(text)
+        )
+        self._pending_turn_coding = coding_cwd is not None
+        # Coding turns are grounded in the codebase, not the screen.
+        include_screenshot = self._config.include_screenshot and coding_cwd is None
+        self._record_user_turn(text, coding_cwd)
         self._ask_worker = AskWorker(
             self._client,
             text,
             self._config.capture_monitor_device,
-            self._config.include_screenshot,
+            include_screenshot,
             browser_server,
+            coding_cwd,
         )
         self._ask_worker.succeeded.connect(self._on_reply)
         self._ask_worker.failed.connect(self._on_ask_failed)
@@ -451,6 +499,51 @@ class VoiceAssistant(QObject):
         server = getattr(self, "_browser_server", None)
         if server is not None:
             server.stop()
+
+    def _tx(self) -> "TranscriptStore | None":
+        """The transcript store, or None when transcripts are off/unavailable.
+
+        Read via getattr so it's safe before __init__ finishes (and in tests
+        that build the assistant directly).
+        """
+        return getattr(self, "_transcript", None)
+
+    def _resolve_coding_for_turn(self, text: str) -> str | None:
+        """Codebase path to run Claude Code against for a coding turn, else None.
+
+        Returns a path only when coding mode is enabled, the request sounds like
+        a coding / file-editing task, and the configured codebase folder exists.
+        Anything else falls through to a normal turn, so plain voice use is
+        untouched.
+        """
+        if not self._config.coding_enabled:
+            return None
+        if not coding.looks_like_coding_request(text):
+            return None
+        path = self._config.coding_path
+        if not path:
+            return None
+        if not os.path.isdir(path):
+            logger.warning(
+                "Coding path is not a folder; answering normally: %s", path
+            )
+            return None
+        return path
+
+    def _record_user_turn(self, text: str, coding_cwd: str | None) -> None:
+        """Record what the user said under the right conversation."""
+        tx = self._tx()
+        if tx is None:
+            return
+        if coding_cwd:
+            tx.record_user(
+                text,
+                session_id=self._config.coding_session_id,
+                kind="coding",
+                path=coding_cwd,
+            )
+        else:
+            tx.record_user(text, session_id=self._config.session_id, kind="voice")
 
     def _read_transcript(self) -> str:
         """Read the transcribed text from the configured capture source."""
@@ -496,6 +589,14 @@ class VoiceAssistant(QObject):
         if self.sender() is not self._ask_worker:
             return  # Stale worker from a timed-out turn; ignore.
         self._overlay.show_speaking()
+        tx = self._tx()
+        if tx is not None:
+            session_id = (
+                self._config.coding_session_id
+                if getattr(self, "_pending_turn_coding", False)
+                else self._config.session_id
+            )
+            tx.record_assistant(reply, session_id=session_id)
         self._cancel_event = threading.Event()
         self._speak_worker = SpeakWorker(
             reply,
@@ -571,6 +672,9 @@ class VoiceAssistant(QObject):
         )
         self._reset_state()
         self._overlay.hide()
+        tx = self._tx()
+        if tx is not None:
+            tx.set_idle()
 
     def _barge_in(self) -> None:
         """Interrupt the in-flight turn so a new recording can start.
@@ -607,12 +711,18 @@ class VoiceAssistant(QObject):
     def _return_to_idle(self) -> None:
         self._reset_state()
         self._overlay.hide()
+        tx = self._tx()
+        if tx is not None:
+            tx.set_idle()
 
     def _fail_current_turn(self, message: str) -> None:
         logger.warning(message)
         self._tray.notify("Voice Assistant", message)
         self._reset_state()
         self._overlay.show_error()
+        tx = self._tx()
+        if tx is not None:
+            tx.record_error(message)
         self._error_token += 1
         token = self._error_token
         QTimer.singleShot(2500, lambda: self._hide_error(token))
@@ -634,6 +744,27 @@ class VoiceAssistant(QObject):
         dialog.exec()
         if restart_requested["value"]:
             self._restart()
+
+    def _open_transcript(self) -> None:
+        """Open the live transcript page in the default browser."""
+        server = getattr(self, "_transcript_server", None)
+        url = server.url if server is not None else None
+        if not url:
+            self._tray.notify(
+                "Voice Assistant",
+                "The transcript page isn't running. Enable it in Settings.",
+            )
+            return
+        try:
+            webbrowser.open(url)
+        except Exception as exc:
+            logger.warning("Could not open transcript page: %s", exc)
+            self._tray.notify("Voice Assistant", f"Transcript page: {url}")
+
+    def _stop_transcript_server(self) -> None:
+        server = getattr(self, "_transcript_server", None)
+        if server is not None:
+            server.stop()
 
     def _reset_claude_session(self) -> None:
         self._config.session_id = None
@@ -672,6 +803,7 @@ class VoiceAssistant(QObject):
             if self._hotkey is not None:
                 self._hotkey.unregister()
             self._stop_browser_server()
+            self._stop_transcript_server()
             if self._single_instance is not None:
                 self._single_instance.close()
             subprocess.Popen(
@@ -691,6 +823,7 @@ class VoiceAssistant(QObject):
         if self._hotkey is not None:
             self._hotkey.unregister()
         self._stop_browser_server()
+        self._stop_transcript_server()
         self._tray.hide()
         self._app.quit()
 

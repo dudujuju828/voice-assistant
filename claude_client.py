@@ -62,6 +62,21 @@ SCREENSHOT_PROMPT = (
     "are not sure what they mean, ask one quick question to clarify."
 )
 
+# Appended only on a coding turn (when a codebase working directory is set). The
+# reply is still spoken, so it must end in a short plain summary — but unlike a
+# normal turn the model should actually edit files, not just talk about it.
+CODING_PROMPT = (
+    "This turn is a coding or file editing request about a project on the "
+    "person's computer. You are already running inside that project folder as "
+    "your working directory, so use your tools to read and edit its files "
+    "directly. Actually make the change they asked for, do not just describe "
+    "it. When you are done, give a short spoken summary, one or two sentences, "
+    "of what you changed and which file. Never read code, file contents, long "
+    "paths, or command output aloud, since everything you say is spoken by a "
+    "text to speech voice; summarize it in plain words and offer to go into "
+    "detail if they want."
+)
+
 # Appended only on a browsing turn (when the Playwright MCP browser is attached).
 BROWSER_PROMPT = (
     "You can control a web browser that is open on the person's screen using "
@@ -121,30 +136,41 @@ class ClaudeClient:
         question: str,
         screenshot_path: Optional[str],
         mcp_config_path: Optional[str] = None,
+        coding_cwd: Optional[str] = None,
     ) -> str:
         """Run one Claude turn and return the reply text.
 
         Resumes the persistent session when one exists. On a session error
         (exit code != 0 or "No conversation found"), clears the stored
-        session_id and retries once as a fresh conversation. ``mcp_config_path``,
+        session id and retries once as a fresh conversation. ``mcp_config_path``,
         when given, attaches the browser MCP server so this is a browsing turn.
+        ``coding_cwd``, when given, runs Claude Code with that codebase folder as
+        the working directory and uses a separate coding session, so coding turns
+        never mix with the casual voice conversation.
         """
+        # Coding turns persist their own session id so the codebase conversation
+        # stays separate from the voice one (and vice versa).
+        session_attr = "coding_session_id" if coding_cwd else "session_id"
         prompt = self._build_prompt(question, screenshot_path)
         add_dir = (
             os.path.dirname(os.path.abspath(screenshot_path))
             if screenshot_path
             else None
         )
-        session_id = self._config.session_id
+        session_id = getattr(self._config, session_attr)
 
         try:
-            return self._run_turn(prompt, session_id, add_dir, mcp_config_path)
+            return self._run_turn(
+                prompt, session_id, add_dir, mcp_config_path, coding_cwd, session_attr
+            )
         except ClaudeError as exc:
             if session_id is None or not _is_session_error(str(exc)):
                 raise
             # Stale/expired session — start fresh once.
-            self._config.session_id = None
-            return self._run_turn(prompt, None, add_dir, mcp_config_path)
+            setattr(self._config, session_attr, None)
+            return self._run_turn(
+                prompt, None, add_dir, mcp_config_path, coding_cwd, session_attr
+            )
 
     # --- internals ----------------------------------------------------------
 
@@ -162,10 +188,14 @@ class ClaudeClient:
         session_id: Optional[str],
         add_dir: Optional[str],
         mcp_config_path: Optional[str] = None,
+        cwd: Optional[str] = None,
+        session_attr: str = "session_id",
     ) -> str:
         system_prompt = SYSTEM_PROMPT
         if add_dir:  # a screenshot is attached for this turn
             system_prompt = f"{system_prompt}\n\n{SCREENSHOT_PROMPT}"
+        if cwd:  # a codebase working directory is set for this turn
+            system_prompt = f"{system_prompt}\n\n{CODING_PROMPT}"
         if mcp_config_path:  # a browser is attached for this turn
             system_prompt = f"{system_prompt}\n\n{BROWSER_PROMPT}"
         cmd = [
@@ -210,6 +240,9 @@ class ClaudeClient:
                 errors="replace",
                 shell=False,
                 creationflags=_NO_WINDOW,
+                # Coding turns run inside the codebase so Claude treats it as the
+                # project root; other turns keep the app's own working directory.
+                cwd=cwd or None,
             )
         except OSError as exc:
             raise ClaudeError(f"Failed to launch Claude: {exc}") from exc
@@ -241,9 +274,9 @@ class ClaudeClient:
                 detail = f"{detail} {snippet}".strip()
             raise ClaudeError(detail or f"Claude exited with code {proc.returncode}.")
 
-        return self._parse_result(stdout)
+        return self._parse_result(stdout, session_attr)
 
-    def _parse_result(self, stdout: str) -> str:
+    def _parse_result(self, stdout: str, session_attr: str = "session_id") -> str:
         stdout = (stdout or "").strip()
         if not stdout:
             raise ClaudeError("Claude returned no output.")
@@ -251,7 +284,7 @@ class ClaudeClient:
 
         new_session = payload.get("session_id")
         if isinstance(new_session, str) and new_session.strip():
-            self._config.session_id = new_session
+            setattr(self._config, session_attr, new_session)
 
         if payload.get("is_error"):
             raise ClaudeError(str(payload.get("result", "Claude reported an error.")))

@@ -39,6 +39,35 @@ class FakeTray:
         self.notifications.append((title, message))
 
 
+class FakeTranscript:
+    """Records the live-state calls main.py makes into the transcript store."""
+
+    def __init__(self) -> None:
+        self.events: list[tuple] = []
+
+    def begin_recording(self) -> None:
+        self.events.append(("recording",))
+
+    def begin_processing(self) -> None:
+        self.events.append(("processing",))
+
+    def set_partial(self, text: str) -> None:
+        self.events.append(("partial", text))
+
+    def record_user(self, text, session_id=None, kind="voice", path="") -> str:
+        self.events.append(("user", text, kind, path))
+        return "conv-1"
+
+    def record_assistant(self, text, session_id=None) -> None:
+        self.events.append(("assistant", text, session_id))
+
+    def record_error(self, message: str) -> None:
+        self.events.append(("error", message))
+
+    def set_idle(self) -> None:
+        self.events.append(("idle",))
+
+
 class FailingCaptureInput:
     def focus_for_capture(self) -> None:
         raise RuntimeError("focus failed")
@@ -82,6 +111,8 @@ class MainStateTests(unittest.TestCase):
         )
         assistant._overlay = FakeOverlay()
         assistant._tray = FakeTray()
+        assistant._transcript = FakeTranscript()
+        assistant._pending_turn_coding = False
         return assistant
 
     def test_press_failure_returns_to_idle(self) -> None:
@@ -368,9 +399,11 @@ class SpeakWorkerDispatchTests(unittest.TestCase):
 class _FakeAskClient:
     def __init__(self) -> None:
         self.calls: list[tuple[str, object]] = []
+        self.coding_cwds: list[object] = []
 
-    def ask(self, question: str, shot, mcp_config_path=None):
+    def ask(self, question: str, shot, mcp_config_path=None, coding_cwd=None):
         self.calls.append((question, shot))
+        self.coding_cwds.append(coding_cwd)
         return "reply"
 
 
@@ -396,6 +429,22 @@ class AskWorkerScreenshotTests(unittest.TestCase):
 
         cap.assert_called_once_with("dev")
         self.assertEqual(client.calls, [("q", "C:/shot.png")])
+
+    def test_coding_cwd_passed_through_to_client(self) -> None:
+        # A coding turn skips the screenshot and forwards the codebase path so the
+        # client runs Claude Code in that working directory.
+        client = _FakeAskClient()
+        worker = AskWorker(
+            client, "edit the cpp file", "dev", include_screenshot=False,
+            coding_cwd="C:/dev/project",
+        )
+
+        with patch("main.capture.capture_monitor") as cap:
+            worker.run()
+
+        cap.assert_not_called()
+        self.assertEqual(client.calls, [("edit the cpp file", None)])
+        self.assertEqual(client.coding_cwds, ["C:/dev/project"])
 
 
 class RestartTests(unittest.TestCase):
@@ -438,6 +487,61 @@ class RestartTests(unittest.TestCase):
 
         self.assertTrue(any(e[0] == "notify" for e in assistant._events if isinstance(e, tuple)))
         self.assertNotIn("quit", assistant._events)
+
+
+class CodingRoutingTests(unittest.TestCase):
+    """Coding turns route to the codebase only when enabled, asked for, valid."""
+
+    def _va(self, enabled: bool, path: str, session="cs-1") -> VoiceAssistant:
+        a = VoiceAssistant.__new__(VoiceAssistant)
+        a._transcript = FakeTranscript()
+        a._config = SimpleNamespace(
+            coding_enabled=enabled,
+            coding_path=path,
+            session_id="vs-1",
+            coding_session_id=session,
+        )
+        return a
+
+    def test_coding_request_with_valid_path_returns_path(self) -> None:
+        a = self._va(enabled=True, path="C:/dev/project")
+        with patch("main.os.path.isdir", return_value=True):
+            cwd = a._resolve_coding_for_turn("edit the cpp file please")
+        self.assertEqual(cwd, "C:/dev/project")
+
+    def test_disabled_never_routes_to_coding(self) -> None:
+        a = self._va(enabled=False, path="C:/dev/project")
+        with patch("main.os.path.isdir", return_value=True):
+            self.assertIsNone(a._resolve_coding_for_turn("edit the cpp file"))
+
+    def test_non_coding_request_is_not_routed(self) -> None:
+        a = self._va(enabled=True, path="C:/dev/project")
+        with patch("main.os.path.isdir", return_value=True):
+            self.assertIsNone(a._resolve_coding_for_turn("what time is it"))
+
+    def test_missing_path_is_not_routed(self) -> None:
+        a = self._va(enabled=True, path="")
+        self.assertIsNone(a._resolve_coding_for_turn("refactor the parser"))
+
+    def test_path_that_is_not_a_folder_is_not_routed(self) -> None:
+        a = self._va(enabled=True, path="C:/dev/missing")
+        with (
+            patch("main.os.path.isdir", return_value=False),
+            patch("main.logger.warning"),
+        ):
+            self.assertIsNone(a._resolve_coding_for_turn("edit the cpp file"))
+
+    def test_record_user_turn_tags_coding_vs_voice(self) -> None:
+        a = self._va(enabled=True, path="C:/dev/project")
+        a._record_user_turn("edit the cpp file", "C:/dev/project")
+        a._record_user_turn("what time is it", None)
+        self.assertEqual(
+            a._transcript.events,
+            [
+                ("user", "edit the cpp file", "coding", "C:/dev/project"),
+                ("user", "what time is it", "voice", ""),
+            ],
+        )
 
 
 class BrowseSupersedeTests(unittest.TestCase):

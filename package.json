@@ -1,7 +1,7 @@
 {
   "private": true,
   "scripts": {
-    "build": "uv run --python 3.12 --with-requirements requirements.txt python -m compileall main.py app_logging.py config.py capture.py claude_client.py browser_mcp.py cppreference_mcp.py hidden_input.py hotkey.py monitors.py runtime_checks.py single_instance.py tts.py ui tests",
+    "build": "uv run --python 3.12 --with-requirements requirements.txt python -m compileall main.py app_logging.py config.py capture.py claude_client.py browser_mcp.py cppreference_mcp.py coding.py transcript.py transcript_server.py hidden_input.py hotkey.py monitors.py runtime_checks.py single_instance.py tts.py ui tests",
     "test": "uv run --python 3.12 --with-requirements requirements.txt python -m unittest discover -s tests"
   }
 }

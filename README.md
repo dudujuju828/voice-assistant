@@ -54,11 +54,14 @@ python main.py
    recording, amber while thinking, green while speaking. It's gone when idle.
 5. Right-click the tray icon for **Settings** (capture monitor, capture method,
    the **send-screenshot toggle**, Claude model/effort/timeout, the TTS provider
-   and voice, and TTS quality/timeout), **Reset Claude Session**, **Pause
-   Hotkey**, **Restart Voice Assistant**, or **Quit**. Turn the screenshot toggle
-   off to use it as a plain voice assistant — no screen capture, and no image is
-   sent to Claude. **Restart** relaunches the app in a fresh process (handy after
-   changing settings); Settings also has a **Save & Restart** button.
+   and voice, TTS quality/timeout, the **codebase path** for coding mode, and the
+   **transcript** toggle/port), **Open Transcript**, **Reset Claude Session**,
+   **Pause Hotkey**, **Restart Voice Assistant**, or **Quit**. Turn the screenshot
+   toggle off to use it as a plain voice assistant — no screen capture, and no
+   image is sent to Claude. **Open Transcript** opens the live conversation page
+   (see [Live transcript page](#live-transcript-page)) in your browser.
+   **Restart** relaunches the app in a fresh process (handy after changing
+   settings); Settings also has a **Save & Restart** button.
 
 ### Capture methods
 
@@ -82,7 +85,9 @@ Config is stored at `%APPDATA%\VoiceAssistant\config.json`; the Claude session
 id persists there so conversations carry across questions and restarts. The
 spoken-reply behaviour (short, plain, no markdown) is set by `SYSTEM_PROMPT` in
 `claude_client.py`.
-Diagnostics are written to `%APPDATA%\VoiceAssistant\voice-assistant.log`.
+Diagnostics are written to `%APPDATA%\VoiceAssistant\voice-assistant.log`, and
+conversation transcripts to `%APPDATA%\VoiceAssistant\transcripts\` (one JSON
+file per conversation — see [Live transcript page](#live-transcript-page)).
 
 ### Model and voice settings
 
@@ -147,6 +152,58 @@ browsing — but the C++ fast path above stays quick on any model.
 Because the assistant runs Claude with skip-permissions (see the warning above),
 a browsing agent can click and submit forms on your behalf — keep it to sites you
 trust.
+
+### Live transcript page
+
+Every turn — what you say and what the assistant replies — is recorded, and you
+can watch the conversation as a **live local web page**. Pick **Open Transcript**
+from the tray menu (or browse to the URL printed in the log) and the page opens
+in your browser. It is served from a tiny built-in web server on **127.0.0.1
+only**, so nothing leaves your machine, and it needs nothing to `pip install` —
+it is pure standard library, like the browsing/MCP pieces.
+
+The page is **live**: it reacts in real time to the same states as the tray dot.
+You'll see it switch to *Listening…* (red) when you hold the hotkey, *Thinking…*
+(amber) with your words streaming in as Wispr types them, then *Speaking…*
+(green) as the reply lands — using Server-Sent Events, so there's no polling. It
+also gives you:
+
+- **Browsable history** — a sidebar of every past conversation (across sessions
+  and restarts), newest first, each labelled and timestamped. Click one to read
+  it; click the live one (or *Back to live*) to follow along again.
+- **Download** — save any conversation as **Markdown**, plain **text**, or
+  **JSON** from the buttons in the header.
+
+A *conversation* maps to one Claude session, so it carries across turns and
+restarts exactly like the session does; **Reset Claude Session** (or a coding
+turn, which uses its own session) starts a new one. Transcripts live as one JSON
+file per conversation under `%APPDATA%\VoiceAssistant\transcripts\`. Turn the
+whole feature off, or change the port, in Settings → *Transcript* (port `0` picks
+a free port automatically). The store and server are in
+[`transcript.py`](transcript.py) and [`transcript_server.py`](transcript_server.py);
+the page itself is [`ui/transcript.html`](ui/transcript.html).
+
+### Coding mode (run Claude Code against a codebase)
+
+Point the assistant at a project folder and it can **edit that codebase by
+voice**. Set a **Codebase path** and tick **Coding mode** in Settings; then a
+turn that sounds like a coding or file-editing request — *"edit the cpp file"*,
+*"fix the bug in the parser"*, *"add a function that…"*, *"refactor the auth
+module"* — runs Claude Code with that folder as its **working directory /
+project**, so it reads and edits the files there directly and then speaks a short
+summary of what it changed.
+
+Coding turns use their **own Claude session**, separate from the casual voice
+conversation, so the two never mix — and they show up as their own (clearly
+labelled) thread on the transcript page. **Normal, non-coding turns are
+completely unaffected**: the routing is a cheap, deterministic phrase match (see
+[`coding.py`](coding.py)), so plain voice use never touches your codebase, and a
+coding turn only fires when the mode is enabled *and* the configured folder
+exists. Coding turns honour the **Claude timeout** in Settings (raise it for big
+edits), and — like browsing — they run with skip-permissions, so the assistant
+edits files on your behalf without asking; keep the codebase path on a project
+you're happy to have edited. Browsing takes precedence when a turn is both, so
+*"look up…"* still browses.
 
 ### Local TTS (offline)
 

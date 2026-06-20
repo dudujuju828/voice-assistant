@@ -21,11 +21,13 @@ from config import (
     DEFAULT_TTS_REQUEST_TIMEOUT_SECONDS,
     DEFAULT_TTS_MODEL,
     DEFAULT_TTS_SIMILARITY_BOOST,
+    DEFAULT_TRANSCRIPT_PORT,
     DEFAULT_TTS_SPEED,
     DEFAULT_TTS_STABILITY,
     MAX_CLAUDE_TIMEOUT_SECONDS,
     DEFAULT_VOICE_ID,
     MAX_CAPTURE_DELAY_MS,
+    MAX_TRANSCRIPT_PORT,
     MAX_TTS_REQUEST_TIMEOUT_SECONDS,
     MAX_TTS_SPEED,
     MIN_CLAUDE_TIMEOUT_SECONDS,
@@ -464,6 +466,56 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(config.hotkey_mods, ["ctrl", "win"])
             self.assertEqual(config.hotkey_vk, "A")
+
+    # --- coding mode --------------------------------------------------------
+
+    def test_coding_defaults_off_with_empty_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+            self.assertFalse(config.coding_enabled)
+            self.assertEqual(config.coding_path, "")
+            self.assertIsNone(config.coding_session_id)
+
+    def test_coding_settings_persist(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            # Stay inside the patched APPDATA so saves and the reload hit tmp.
+            with patch.dict(os.environ, {"APPDATA": tmp}, clear=False):
+                config = Config()
+                config.set_many(
+                    {"coding.enabled": True, "coding.path": "  C:/dev/project  "}
+                )
+                self.assertTrue(config.coding_enabled)
+                self.assertEqual(config.coding_path, "C:/dev/project")  # stripped
+
+                reloaded = Config()
+                self.assertTrue(reloaded.coding_enabled)
+                self.assertEqual(reloaded.coding_path, "C:/dev/project")
+
+    def test_coding_session_id_normalizes_like_voice_session(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"APPDATA": tmp}, clear=False):
+                config = Config()
+                config.coding_session_id = "  cs-1  "
+                self.assertEqual(config.coding_session_id, "cs-1")
+                config.coding_session_id = "   "
+                self.assertIsNone(config.coding_session_id)
+
+    # --- transcript page ----------------------------------------------------
+
+    def test_transcript_defaults_on_with_default_port(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config = self._load_with_appdata(Path(tmp))
+            self.assertTrue(config.transcript_enabled)
+            self.assertEqual(config.transcript_port, DEFAULT_TRANSCRIPT_PORT)
+
+    def test_transcript_port_is_bounded(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(os.environ, {"APPDATA": tmp}, clear=False):
+                config = Config()
+                config.transcript_port = 999999  # out of range
+                self.assertEqual(config.transcript_port, MAX_TRANSCRIPT_PORT)
+                config.transcript_port = 0  # 0 = auto/free port, allowed
+                self.assertEqual(config.transcript_port, 0)
 
 
 if __name__ == "__main__":
