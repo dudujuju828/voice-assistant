@@ -768,10 +768,14 @@ class VoiceAssistant(QObject):
 
     def _reset_claude_session(self) -> None:
         self._config.session_id = None
+        # Reset the separate coding conversation too, so this is a clean slate for
+        # both sessions: the next voice turn and the next coding turn each start
+        # fresh. Otherwise there is no way to clear a stuck coding session.
+        self._config.coding_session_id = None
         # The conversation is gone, so leave browsing mode too (the open window
         # stays put for the user; a new browse request will re-enter the mode).
         self._browsing = False
-        logger.info("Claude session reset by user.")
+        logger.info("Claude session reset by user (voice + coding).")
         self._tray.notify("Voice Assistant", "Claude session reset.")
 
     def _on_pause_toggled(self, paused: bool) -> None:

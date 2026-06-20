@@ -492,7 +492,13 @@ class SettingsDialog(QDialog):
         updates["browser.monitor_device"] = self._browser_monitor_combo.currentData()
         updates["browser.timeout_seconds"] = self._browser_timeout_input.value()
         updates["coding.enabled"] = self._coding_enabled_check.isChecked()
-        updates["coding.path"] = self._coding_path_input.text().strip()
+        new_coding_path = self._coding_path_input.text().strip()
+        updates["coding.path"] = new_coding_path
+        # Pointing coding mode at a different codebase invalidates the existing
+        # coding session — it was grounded in the old project — so start the new
+        # folder with a fresh conversation.
+        if new_coding_path != self._config.coding_path:
+            updates["coding.session_id"] = None
         updates["transcript.enabled"] = self._transcript_enabled_check.isChecked()
         updates["transcript.port"] = self._transcript_port_input.value()
         try:

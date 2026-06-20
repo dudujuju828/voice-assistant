@@ -15,6 +15,8 @@ without disturbing plain voice use.
 """
 from __future__ import annotations
 
+import re
+
 # Phrases that mark a turn as a coding / file-editing request. Matched as
 # substrings against the lowered transcript. Bias toward an editing verb paired
 # with a code/file noun so ordinary chat ("open the window", "fix my schedule")
@@ -84,9 +86,9 @@ _CODING_TRIGGERS = (
     "dot py",
     "dot js",
     "dot ts",
-    # project-scoped phrasings
+    # project-scoped phrasings ("in the repo" is matched as a whole word below,
+    # so it can't fire inside an unrelated longer word like "in the report").
     "in the codebase",
-    "in the repo",
     "in the repository",
     "in the project",
     "the codebase",
@@ -98,8 +100,17 @@ _CODING_TRIGGERS = (
     "push to main",
 )
 
+# Short, abbreviation-style cues that must match as whole words, so the casual
+# "in the repo(s)" is caught but everyday speech like "in the report" is not.
+# Kept apart from the plain substring triggers above (which stay a cheap "in"
+# test); longer triggers like "refactor" intentionally still match as substrings
+# so "refactoring" trips them too.
+_CODING_WORD_TRIGGER_RE = re.compile(r"\bin the repos?\b")
+
 
 def looks_like_coding_request(text: str) -> bool:
     """True if the transcript clearly asks for a coding / file-editing action."""
     lowered = (text or "").lower()
-    return any(trigger in lowered for trigger in _CODING_TRIGGERS)
+    if any(trigger in lowered for trigger in _CODING_TRIGGERS):
+        return True
+    return _CODING_WORD_TRIGGER_RE.search(lowered) is not None
